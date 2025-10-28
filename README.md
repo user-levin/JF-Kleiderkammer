@@ -1,10 +1,12 @@
+```md
 ## Digitale Kleiderkammer – Jugendfeuerwehr
 
 ### Zweck
 - Wer trägt welches Teil?
 - Was liegt im Lager?
 - Seit wann?
-- Mit Nachweis für Eltern / Vorstand / Versicherung.
+- PSA-Status (inkl. Helm-Ablaufdatum + Helmprüfung).
+- Nachweisfähig gegenüber Eltern / Vorstand / Versicherung.
 
 ---
 
@@ -19,10 +21,16 @@
   - Notiz / Zustand
   - aktuell bei Kind X **oder** frei im Lager
   - Ablaufdatum (Pflicht bei Helmen / PSA mit Ablauf)
+  - Helmprüfung:
+    - letztes Prüfdatum
+    - nächstes fälliges Prüfdatum
 - Funktionen:
   - Suchen / Filtern (Typ, Größe, Status frei/vergeben)
+  - Filtern nach „abgelaufen“ / „Prüfung fällig“
   - Anlegen / Bearbeiten / Löschen
-  - Warnung bei abgelaufenen Helmen
+  - Warnung bei:
+    - Helm abgelaufen
+    - Helmprüfung überfällig
 
 #### Kinder
 - Liste aller Kinder.
@@ -52,32 +60,42 @@
 1. Teil suchen oder Etikett scannen.
 2. App zeigt:
    - aktueller Träger ODER „frei im Lager“
-   - (bei Helm) Ablaufdatum.
+   - Helmstatus (Ablaufdatum + Prüfstatus)
 3. Aktionen:
    - **an Kind geben**
    - **zurück ins Lager**
 4. Jede Aktion schreibt automatisch einen Verlaufseintrag.
 5. Wechsel Kind A → Kind B wird genauso gebucht.
 
+Niemand muss den Verlauf manuell pflegen.
+
 ---
 
 ### Scan (Handy)
 - Kamera im Handy-Browser.
-- Scan von Barcode / QR / Etikett → ergibt die ID des Teils.
+- Scan von Barcode / QR / Etikett → ergibt die ID des Teils (z. B. `0000451`).
 - Direkt danach:
   - Falls Teil bekannt → Detailansicht + Aktionen.
-  - Falls Teil neu → Maske „Teil anlegen“ (ID ist schon vorausgefüllt).
+  - Falls Teil neu → Maske „Teil anlegen“:
+    - ID ist vorausgefüllt
+    - Typ (Jacke / Helm / …)
+    - Größe
+    - Ablaufdatum (bei Helm)
+    - Helmprüfung (letzte Prüfung / nächste fällig)
+    - Speichern → fertig
 
-Ziel: Kein Tippen, keine Zettel, keine Regalsuche.
+Ziel: kein Tippen, keine Zettel, keine Regalsuche.
 
 ---
 
 ### CSV
+
 #### Export
-- Bestand als CSV
+- Bestand als CSV  
+  (ID, Typ, Größe, Ablaufdatum, Helmprüfstatus, aktueller Träger/Frei)
 - Kinderliste als CSV
 - kompletter Verlauf als CSV
-- Nutzt du als Backup und als Nachweis.
+- Nutzt du als Backup, Dokumentation, Übergabe an Vorstand.
 
 #### Import (Standard)
 - CSV mit Spalten z. B.:
@@ -85,14 +103,26 @@ Ziel: Kein Tippen, keine Zettel, keine Regalsuche.
   - `type`
   - `size`
   - `expiry_date`
+  - `helmet_last_check` (letzte Helmprüfung)
+  - `helmet_next_check` (nächste fällige Prüfung)
   - `current_child_name`
 - Für Ersterfassung und Korrekturen.
-- Legt fehlende Kinder an, legt Teile an, setzt Zuweisungen, schreibt Verlauf.
+- Verhalten beim Import:
+  - legt fehlende Kinder an
+  - legt Teile an / aktualisiert Teile
+  - setzt aktuelle Zuordnung („trägt gerade …“)
+  - schreibt Verlaufseintrag („ausgegeben an …“)
 
 #### Import (Sortly)
-- Übernahme vorhandener Inventur-Daten.
-- Versucht Typ, Größe, Zuordnung und Ablaufdatum (Helme) automatisch zu erkennen.
-- Unsichere Zuordnung → Teil landet erstmal „frei im Lager“.
+- Übernahme vorhandener Inventur-Daten (Sortly-Export).
+- Automatische Zuordnung:
+  - ID / Inventarnummer
+  - Typ (Jacke / Helm / …)
+  - Größe (aus Beschreibung)
+  - ggf. aktueller Träger
+  - Ablaufdatum (bei Helmen)
+  - Prüfdaten (falls im Export vorhanden)
+- Falls unklar → Teil landet als „frei im Lager“.
 
 ---
 
@@ -100,29 +130,34 @@ Ziel: Kein Tippen, keine Zettel, keine Regalsuche.
 - Keine offene Registrierung.
 - Nutzer werden intern angelegt.
 
-Rollenidee:
-- `admin`: alles (auch CSV-Import, Nutzerpflege)
-- `editor`: Bestand pflegen, Kinder pflegen, Zuweisungen buchen
-- `viewer`: nur lesen
+Rollen:
+- `admin`
+  - alles (Bestand, Kinder, Übergaben, CSV-Import/Export, Nutzerverwaltung)
+- `editor`
+  - Bestand pflegen, Kinder pflegen, Zuweisungen buchen
+- `viewer`
+  - nur lesen
 
 Optional:
-- Öffentliche Read-Only-Ansicht (z. B. „wer hat was gerade?“), ohne Login.
+- Öffentliche Read-Only-Ansicht (nur „wer hat was gerade?“ / Lagerbestand), ohne Login.
 
 ---
 
 ### Kontrolle / Nachweis
-- Jede Übergabe wird protokolliert (mit Zeitstempel).
+- Jede Übergabe eines Teils erzeugt einen Verlaufseintrag mit Zeitstempel.
 - Du kannst jederzeit sagen:
   - Wo ist Jacke `0000451` jetzt?
   - Wer hatte sie davor?
   - Seit wann liegt Helm `000072` wieder im Lager?
   - Ist der Helm abgelaufen?
+  - Ist die Helmprüfung fällig?
 
 ---
 
 ### Ergebnis
-- Du weißt immer, welches Kind welche Ausrüstung hat.
-- Du findest Teile durch Scan in Sekunden.
-- Du kannst bei Austritt alles sauber zurückbuchen.
-- Du kannst belegen, wann ein Teil ausgegeben wurde.
-- Helme mit Ablaufdatum laufen nicht „einfach weiter“, weil du die Frist siehst.
+- Du weißt, welches Kind was trägt.
+- Du findest Teile in Sekunden per Scan.
+- Du buchst Ausgaben und Rückgaben direkt am Handy beim Dienst.
+- Du kannst beim Austritt sauber alles zurückholen.
+- Du kannst Sicherheit (Helm gültig? Helm geprüft?) sofort belegen.
+```
