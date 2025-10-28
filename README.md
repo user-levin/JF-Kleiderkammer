@@ -1,4 +1,3 @@
-```md
 ## Digitale Kleiderkammer – Jugendfeuerwehr
 
 ### Zweck
@@ -160,4 +159,3 @@ Optional:
 - Du buchst Ausgaben und Rückgaben direkt am Handy beim Dienst.
 - Du kannst beim Austritt sauber alles zurückholen.
 - Du kannst Sicherheit (Helm gültig? Helm geprüft?) sofort belegen.
-```
