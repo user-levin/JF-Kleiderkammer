@@ -13,7 +13,8 @@
       "@api/*": ["api/*"],
       "@components/*": ["components/*"],
       "@pages/*": ["pages/*"],
-      "@styles/*": ["styles/*"]
+      "@styles/*": ["styles/*"],
+      "@constants/*": ["constants/*"]
     }
   },
   "include": ["src"],

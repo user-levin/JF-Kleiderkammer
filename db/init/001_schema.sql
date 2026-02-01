@@ -33,8 +33,22 @@ CREATE TABLE ort (
         (typ = 'kind'  AND kind_id IS NOT NULL) OR
         (typ = 'lager' AND kind_id IS NULL)
     ),
+    CONSTRAINT ck_ort_lager_name CHECK (typ <> 'lager' OR name IS NOT NULL),
     UNIQUE (typ, kind_id)
 );
+
+-- Helper-Funktion fuer Standard-Lager-Referenzen
+CREATE OR REPLACE FUNCTION get_default_lager_id()
+RETURNS INTEGER
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT id
+    FROM ort
+    WHERE typ = 'lager'
+    ORDER BY id
+    LIMIT 1;
+$$;
 
 -- Artikel
 CREATE TABLE artikel (
@@ -43,9 +57,16 @@ CREATE TABLE artikel (
     bezeichnung      TEXT NOT NULL,
     groesse          TEXT,
     zustand          TEXT,
+    notizen          TEXT,
+    kaufdatum        DATE,
+    ablaufdatum      DATE,
+    helm_letzte_pruefung   DATE,
+    helm_naechste_pruefung DATE,
     aktiv            BOOLEAN NOT NULL DEFAULT TRUE,
-    aktueller_ort_id INTEGER REFERENCES ort(id),
-    angelegt_am      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    aktueller_ort_id INTEGER NOT NULL REFERENCES ort(id),
+    angelegt_am      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_artikel_id_numeric CHECK (id ~ '^[0-9]{9}$')
 );
 
 -- Bewegungen / Historie
@@ -57,19 +78,44 @@ CREATE TABLE bewegung (
     zeitpunkt     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     user_id       INTEGER REFERENCES app_user(id),
     aktion        TEXT NOT NULL, -- z.B. ausgabe, ruecknahme, transfer
+    event_type    TEXT,
+    old_value     JSONB,
+    new_value     JSONB,
     kommentar     TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_bewegung_event_type CHECK (
+        event_type IS NULL OR event_type IN (
+            'ausgabe',
+            'ruecknahme',
+            'transfer',
+            'groesse_change',
+            'notiz_change',
+            'pruefung_update',
+            'ablauf_update',
+            'create',
+            'update'
+        )
+    )
 );
+
+ALTER TABLE artikel
+    ALTER COLUMN aktueller_ort_id SET DEFAULT get_default_lager_id();
 
 -- Indizes & Constraints
 CREATE INDEX idx_artikel_aktiv ON artikel(aktiv);
 CREATE INDEX idx_artikel_kategorie_groesse ON artikel(kategorie, groesse);
+CREATE INDEX idx_artikel_ort ON artikel(aktueller_ort_id);
+CREATE INDEX idx_artikel_ablauf ON artikel(ablaufdatum);
+CREATE INDEX idx_artikel_helm_next ON artikel(helm_naechste_pruefung);
 CREATE INDEX idx_bewegung_artikel_zeitpunkt ON bewegung(artikel_id, zeitpunkt DESC);
+CREATE INDEX idx_bewegung_event_type ON bewegung(event_type);
 CREATE INDEX idx_ort_kind ON ort(kind_id);
+CREATE UNIQUE INDEX ux_ort_single_lager ON ort (typ) WHERE typ = 'lager';
+CREATE UNIQUE INDEX ux_ort_single_kind ON ort (kind_id) WHERE typ = 'kind';
 
 -- Default Lager-Ort
 INSERT INTO ort (typ, name) VALUES ('lager', 'Hauptlager');
 
 -- Beispiel-Admin (Passwort sp?ter setzen: bcrypt-Hash ersetzen)
 INSERT INTO app_user (email, password_hash, role)
-VALUES ('admin@example.com', '$2y$10$replace_with_real_bcrypt', 'admin');
+VALUES ('levin.staudte@gmail.com', 'admin', 'admin');

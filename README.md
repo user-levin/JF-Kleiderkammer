@@ -1,6 +1,6 @@
-## Digitale Kleiderkammer – Jugendfeuerwehr
+# Digitale Kleiderkammer – Jugendfeuerwehr
 
-### Zweck
+## Zweck
 - Wer trägt welches Teil?
 - Was liegt im Lager?
 - Seit wann?
