@@ -1,13 +1,14 @@
 import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-import Dashboard from '@pages/Dashboard';
-import Scan from '@pages/Scan';
-import ArtikelDetail from '@pages/ArtikelDetail';
-import Kinder from '@pages/Kinder';
-import Login from '@pages/Login';
-import Inventar from '@pages/Inventar';
-import Benutzer from '@pages/Benutzer';
+import { Suspense, lazy, useState } from 'react';
 import './styles/global.css';
+
+const DashboardPage = lazy(() => import('@pages/Dashboard'));
+const ScanPage = lazy(() => import('@pages/Scan'));
+const ArtikelDetailPage = lazy(() => import('@pages/ArtikelDetail'));
+const KinderPage = lazy(() => import('@pages/Kinder'));
+const LoginPage = lazy(() => import('@pages/Login'));
+const InventarPage = lazy(() => import('@pages/Inventar'));
+const BenutzerPage = lazy(() => import('@pages/Benutzer'));
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -15,7 +16,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <h1>Digitale Kleiderkammer</h1>
+        <div className="brand-lockup">
+          <img src="/logo.png" alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
+        </div>
         <button
           type="button"
           className="hamburger-button"
@@ -35,7 +38,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <Link to="/benutzer" onClick={() => setMenuOpen(false)}>Benutzer</Link>
         </nav>
       </header>
-      <main>{children}</main>
+      <main>
+        <Suspense fallback={<div className="card"><p className="muted">Ansicht wird geladen ...</p></div>}>
+          {children}
+        </Suspense>
+      </main>
     </div>
   );
 }
@@ -74,31 +81,37 @@ export default function App() {
     <Routes>
       <Route
         path="/login"
-        element={authDisabled ? <Navigate to="/" replace /> : <Login onSuccess={handleLogin} />}
+        element={authDisabled ? (
+          <Navigate to="/" replace />
+        ) : (
+          <Suspense fallback={<div className="card"><p className="muted">Login wird geladen ...</p></div>}>
+            <LoginPage onSuccess={handleLogin} />
+          </Suspense>
+        )}
       />
       <Route
         path="/"
-        element={renderProtectedRoute(<Dashboard onLogout={authDisabled ? undefined : handleLogout} />)}
+        element={renderProtectedRoute(<DashboardPage onLogout={authDisabled ? undefined : handleLogout} />)}
       />
       <Route
         path="/inventar"
-        element={renderProtectedRoute(<Inventar />)}
+        element={renderProtectedRoute(<InventarPage />)}
       />
       <Route
         path="/scan"
-        element={renderProtectedRoute(<Scan />)}
+        element={renderProtectedRoute(<ScanPage />)}
       />
       <Route
         path="/kinder"
-        element={renderProtectedRoute(<Kinder />)}
+        element={renderProtectedRoute(<KinderPage />)}
       />
       <Route
         path="/benutzer"
-        element={renderProtectedRoute(<Benutzer />)}
+        element={renderProtectedRoute(<BenutzerPage />)}
       />
       <Route
         path="/artikel/:id"
-        element={renderProtectedRoute(<ArtikelDetail />)}
+        element={renderProtectedRoute(<ArtikelDetailPage />)}
       />
     </Routes>
   );

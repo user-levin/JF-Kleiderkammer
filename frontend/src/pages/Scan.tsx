@@ -22,6 +22,19 @@ type CreateArticlePayload = {
 const DATE_FORMAT = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium' });
 const TIMESTAMP_FORMAT = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 const SCANNER_RESET_MS = 60;
+const CAMERA_DUPLICATE_SUPPRESS_MS = 600;
+const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
+  video: {
+    facingMode: { ideal: 'environment' },
+    width: { ideal: 1280 },
+    height: { ideal: 720 }
+  },
+  audio: false
+};
+const SCAN_SPEED_OPTIONS = {
+  delayBetweenScanAttempts: 80,
+  delayBetweenScanSuccess: 200
+};
 const DEFAULT_CREATION_STATE = {
   category: '',
   size: '',
@@ -49,6 +62,16 @@ export default function Scan() {
   const cameraLastResultRef = useRef<{ value: string; timestamp: number }>({ value: '', timestamp: 0 });
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
+  const manualInputRef = useRef(manualInput);
+  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
+
+  if (!readerRef.current) {
+    readerRef.current = new BrowserMultiFormatReader(undefined, SCAN_SPEED_OPTIONS);
+  }
+
+  useEffect(() => {
+    manualInputRef.current = manualInput;
+  }, [manualInput]);
 
   const normalizedInput = useMemo(() => normalizeArticleId(manualInput), [manualInput]);
   const normalizedCategory = creationForm.category.trim().toLowerCase();
@@ -108,7 +131,8 @@ export default function Scan() {
 
   const triggerLookup = useCallback(
     (rawValue?: string) => {
-      const normalized = normalizeArticleId(rawValue ?? manualInput);
+      const sourceValue = rawValue ?? manualInputRef.current;
+      const normalized = normalizeArticleId(sourceValue);
       if (!normalized) {
         setLookupMessage('Bitte eine gültige Artikelnummer eingeben oder scannen.');
         return;
@@ -118,7 +142,7 @@ export default function Scan() {
       setLookupMessage(null);
       lookupMutation.mutate(normalized);
     },
-    [lookupMutation, manualInput]
+    [lookupMutation]
   );
 
   const handleCameraDecode = useCallback((value: string) => {
@@ -132,7 +156,7 @@ export default function Scan() {
     }
 
     const now = Date.now();
-    if (cameraLastResultRef.current.value === normalized && now - cameraLastResultRef.current.timestamp < 1500) {
+    if (cameraLastResultRef.current.value === normalized && now - cameraLastResultRef.current.timestamp < CAMERA_DUPLICATE_SUPPRESS_MS) {
       return;
     }
 
@@ -150,11 +174,35 @@ export default function Scan() {
 
   useEffect(() => {
     let cancelled = false;
-    const reader = new BrowserMultiFormatReader();
+    const reader = readerRef.current;
+
+    if (!reader) {
+      return undefined;
+    }
+
+    const stopScanner = () => {
+      scannerControlsRef.current?.stop();
+      scannerControlsRef.current = null;
+
+      const mediaStream = videoRef.current?.srcObject as MediaStream | null;
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+    };
 
     const startScanner = async () => {
+      if (cancelled || document.visibilityState !== 'visible') {
+        return;
+      }
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setCameraError('Dieses Gerät stellt keine Kamera zur Verfügung.');
+        return;
+      }
+
+      if (scannerControlsRef.current) {
         return;
       }
 
@@ -169,14 +217,24 @@ export default function Scan() {
       }
 
       try {
-        const controls = await reader.decodeFromVideoDevice(undefined, videoElement, (result, error) => {
-          if (result) {
-            handleCameraDecode(result.getText());
-            setCameraError(null);
-          } else if (error && !(error instanceof NotFoundException)) {
-            setCameraError(error.message ?? 'Kamera konnte nicht verwendet werden.');
+        const controls = await reader.decodeFromConstraints(
+          CAMERA_CONSTRAINTS,
+          videoElement,
+          (result, error) => {
+            if (result) {
+              handleCameraDecode(result.getText());
+              setCameraError(null);
+            } else if (error && !(error instanceof NotFoundException)) {
+              setCameraError(error.message ?? 'Kamera konnte nicht verwendet werden.');
+            }
           }
-        });
+        );
+
+        if (cancelled) {
+          controls.stop();
+          return;
+        }
+
         scannerControlsRef.current = controls;
       } catch (error) {
         setCameraError(error instanceof Error ? error.message : 'Kamera konnte nicht verwendet werden.');
@@ -185,9 +243,20 @@ export default function Scan() {
 
     startScanner();
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        startScanner();
+      } else {
+        stopScanner();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       cancelled = true;
-      scannerControlsRef.current?.stop();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      stopScanner();
     };
   }, [handleCameraDecode]);
 
@@ -322,7 +391,7 @@ export default function Scan() {
           >
             {keyboardScannerMode ? 'Hardware-Scanner aktiv' : 'Hardware-Scanner einschalten'}
           </button>
-          <p className="scanner-hint">Kamera-Scanner läuft automatisch im Hintergrund.</p>
+          <p className="scanner-hint">Kamera-Scanner ist nur aktiv, solange du im Scanner-Menü bist.</p>
         </div>
 
         <div className="camera-scanner">

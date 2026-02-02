@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, MouseEvent, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { api } from '@api/client';
@@ -15,6 +16,7 @@ const EMPTY_FORM: ChildFormState = { firstName: '', lastName: '' };
 type StatusFilter = 'alle' | 'aktiv' | 'inaktiv';
 
 export default function Kinder() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('alle');
@@ -193,6 +195,12 @@ export default function Kinder() {
 
   const handleSelectChild = (child: Child) => {
     setSelectedChild((current) => (current?.id === child.id ? current : child));
+    setActiveArticle(null);
+  };
+
+  const handleNavigateToInventory = (event: MouseEvent, childId: number) => {
+    event.stopPropagation();
+    navigate(`/inventar?child=${childId}`);
   };
 
   const handleCloseChildPanel = () => {
@@ -228,7 +236,6 @@ export default function Kinder() {
             <div className="card-header">
               <div>
                 <h3>Kind bearbeiten</h3>
-                <p className="muted">ID {editingChild.id}</p>
               </div>
               <button type="button" className="ghost-button" onClick={() => setEditingChild(null)}>Schließen</button>
             </div>
@@ -284,10 +291,15 @@ export default function Kinder() {
               key={child.id}
               className={`child-row ${selectedChildId === child.id ? 'is-selected' : ''}`}
             >
-              <button type="button" className="child-info-button" onClick={() => handleSelectChild(child)}>
-                <p className="child-name">{child.firstName} {child.lastName}</p>
-                <p className="muted">ID {child.id} · {(child.articleCount ?? 0)} Teile</p>
-              </button>
+              <div className="child-info-button" onClick={() => handleSelectChild(child)}>
+                <p
+                  className="child-name"
+                  onClick={(event) => handleNavigateToInventory(event, child.id)}
+                >
+                  {child.firstName} {child.lastName}
+                </p>
+                <p className="muted">{(child.articleCount ?? 0)} Artikel aktuell</p>
+              </div>
               <span className={`status-badge ${child.status === 'aktiv' ? 'is-success' : 'is-muted'}`}>
                 {child.status === 'aktiv' ? 'Aktiv' : 'Inaktiv'}
               </span>
@@ -320,16 +332,19 @@ export default function Kinder() {
 
       {selectedChild && (
         <section className="card child-inventory-card">
-          <div className="card-header">
-            <div>
-              <h3>{composeChildName(selectedChild)}</h3>
-              <p className="muted">
-                {childArticlesQuery.isLoading && 'Artikel werden geladen ...'}
-                {!childArticlesQuery.isLoading && `${childArticlesQuery.data?.length ?? 0} Artikel zugeordnet`}
-              </p>
+            <div className="card-header">
+              <div>
+                <h3>{composeChildName(selectedChild)}</h3>
+                <p className="muted">
+                  {childArticlesQuery.isLoading && 'Artikel werden geladen ...'}
+                  {!childArticlesQuery.isLoading && `${childArticlesQuery.data?.length ?? 0} Artikel zugeordnet`}
+                </p>
+              </div>
+              <div className="child-panel-actions">
+                <button type="button" onClick={() => navigate(`/inventar?child=${selectedChild.id}`)}>Im Inventar öffnen</button>
+                <button type="button" className="ghost-button" onClick={handleCloseChildPanel}>Schließen</button>
+              </div>
             </div>
-            <button type="button" className="ghost-button" onClick={handleCloseChildPanel}>Schließen</button>
-          </div>
           {childArticlesQuery.isError && <p className="error-text">Artikel konnten nicht geladen werden.</p>}
           {childArticlesQuery.isSuccess && (childArticlesQuery.data?.length ?? 0) === 0 && (
             <p className="muted">Dem Kind sind aktuell keine Artikel zugeordnet.</p>

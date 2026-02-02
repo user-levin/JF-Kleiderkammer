@@ -807,10 +807,13 @@ function fetch_article(PDO $pdo, string $articleId): array
         json_error('Artikel wurde nicht gefunden.', 404);
     }
 
-    return transform_article_row($row);
+    $movements = fetch_article_movements($pdo, $articleId, 3);
+    $noteEntries = extract_note_entries($row['notizen'] ?? null);
+
+    return transform_article_row($row, true, $movements, $noteEntries);
 }
 
-function transform_article_row(array $row): array
+function transform_article_row(array $row, bool $includeHistory = false, array $movementHistory = [], array $noteEntries = []): array
 {
     $locationType = $row['ort_typ'];
     $isHelmet = mb_strtolower($row['kategorie']) === 'helm';
@@ -849,7 +852,7 @@ function transform_article_row(array $row): array
         ? trim(($row['vorname'] ?? '') . ' ' . ($row['nachname'] ?? ''))
         : ($row['ort_name'] ?? 'Lager');
 
-    return [
+    $article = [
         'id' => $row['id'],
         'category' => $row['kategorie'],
         'label' => $row['bezeichnung'],
@@ -868,6 +871,103 @@ function transform_article_row(array $row): array
         'helmetManufacturedAt' => $row['helm_herstellungsdatum'],
         'warning' => $warning,
     ];
+
+    if ($includeHistory) {
+        $article['movementHistory'] = $movementHistory;
+        $article['noteEntries'] = $noteEntries;
+    }
+
+    return $article;
+}
+
+function fetch_article_movements(PDO $pdo, string $articleId, int $limit = 3): array
+{
+    $statement = $pdo->prepare('SELECT b.id, b.zeitpunkt, b.aktion, b.event_type, ov.typ AS von_typ, ov.name AS von_name, ov.kind_id AS von_kind_id, nv.typ AS nach_typ, nv.name AS nach_name, nv.kind_id AS nach_kind_id FROM bewegung b LEFT JOIN ort ov ON ov.id = b.von_ort_id LEFT JOIN ort nv ON nv.id = b.nach_ort_id WHERE b.artikel_id = :artikel_id ORDER BY b.zeitpunkt DESC LIMIT :limit');
+    $statement->bindValue(':artikel_id', $articleId);
+    $statement->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $statement->execute();
+
+    $rows = $statement->fetchAll();
+
+    return array_map('transform_movement_row', $rows);
+}
+
+function transform_movement_row(array $row): array
+{
+    $from = null;
+    if (!empty($row['von_typ'])) {
+        $from = [
+            'type' => $row['von_typ'],
+            'name' => $row['von_name'],
+            'kindId' => $row['von_kind_id'] ? (int) $row['von_kind_id'] : null,
+        ];
+    }
+
+    $to = null;
+    if (!empty($row['nach_typ'])) {
+        $to = [
+            'type' => $row['nach_typ'],
+            'name' => $row['nach_name'],
+            'kindId' => $row['nach_kind_id'] ? (int) $row['nach_kind_id'] : null,
+        ];
+    }
+
+    return [
+        'id' => (int) $row['id'],
+        'action' => $row['aktion'],
+        'eventType' => $row['event_type'],
+        'performedAt' => $row['zeitpunkt'],
+        'from' => $from,
+        'to' => $to,
+    ];
+}
+
+function extract_note_entries(?string $notes): array
+{
+    if ($notes === null) {
+        return [];
+    }
+
+    $trimmed = trim($notes);
+
+    if ($trimmed === '') {
+        return [];
+    }
+
+    $lines = preg_split('/\R/', $trimmed) ?: [];
+    $entries = [];
+
+    foreach ($lines as $index => $line) {
+        $clean = trim($line);
+
+        if ($clean === '') {
+            continue;
+        }
+
+        if (preg_match('/^\[(.+?)\]\s*(.+)$/u', $clean, $matches)) {
+            $label = $matches[1];
+            $text = $matches[2];
+            $parsed = DateTimeImmutable::createFromFormat('d.m.Y H:i', $label);
+
+            $entries[] = [
+                'id' => sprintf('note-%d', $index),
+                'timestamp' => $parsed ? $parsed->format(DateTimeInterface::ATOM) : null,
+                'label' => $label,
+                'text' => $text,
+            ];
+
+            continue;
+        }
+
+        $entries[] = [
+            'id' => sprintf('note-%d', $index),
+            'timestamp' => null,
+            'label' => null,
+            'text' => $clean,
+        ];
+    }
+
+    return $entries;
 }
 
 function build_article_change_payload(array $fields, array $current): array

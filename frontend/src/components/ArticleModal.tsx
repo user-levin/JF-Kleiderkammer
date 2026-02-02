@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@api/client';
-import { Article, Child } from 'types/domain';
+import { Article, ArticleLocation, ArticleMovement, Child } from 'types/domain';
 import { CATEGORY_PRESETS, CUSTOM_CATEGORY_KEY, findPresetByKey, matchPresetByCategory } from '@constants/articlePresets';
 
 export type ArticleModalProps = {
@@ -20,6 +20,14 @@ type ArticleFormState = {
   helmetNextCheck: string;
 };
 
+type TimelineEntry = {
+  label: string;
+  date: string;
+  meta?: string;
+};
+
+type InternalTimelineEntry = TimelineEntry & { sortValue: number };
+
 const initialFormState = (article: Article): ArticleFormState => ({
   category: article.category,
   size: article.size ?? '',
@@ -29,20 +37,33 @@ const initialFormState = (article: Article): ArticleFormState => ({
   helmetNextCheck: article.helmetNextCheck ?? '',
 });
 
+const TIMELINE_DATE_TIME = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+
 export default function ArticleModal({ article, childrenOptions, onClose, onUpdated }: ArticleModalProps) {
   const [formState, setFormState] = useState<ArticleFormState>(() => initialFormState(article));
   const [selectedChild, setSelectedChild] = useState<string>(article.location.kindId ? String(article.location.kindId) : '');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [newNote, setNewNote] = useState('');
+  const queryClient = useQueryClient();
+  const { data: detailedArticle = article } = useQuery({
+    queryKey: ['article-detail', article.id],
+    queryFn: async () => {
+      const res = await api.get<{ data: Article }>(`/api/articles/${article.id}`);
+      return res.data.data;
+    },
+    initialData: article,
+    staleTime: 10_000,
+  });
+  const currentArticle = detailedArticle;
 
   useEffect(() => {
-    setFormState(initialFormState(article));
-    setSelectedChild(article.location.kindId ? String(article.location.kindId) : '');
+    setFormState(initialFormState(currentArticle));
+    setSelectedChild(currentArticle.location.kindId ? String(currentArticle.location.kindId) : '');
     setStatusMessage(null);
     setErrorMessage(null);
     setNewNote('');
-  }, [article]);
+  }, [currentArticle]);
 
   const isHelmet = formState.category.trim().toLowerCase() === 'helm';
 
@@ -71,6 +92,8 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
     });
   }, [childrenOptions]);
 
+  const timelineEntries = useMemo(() => buildArticleTimeline(currentArticle), [currentArticle]);
+
   const updateMutation = useMutation({
     mutationFn: async (payload: Record<string, string | null>) => {
       const res = await api.patch<{ data: Article }>(`/api/articles/${article.id}`, payload);
@@ -79,6 +102,7 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
     onSuccess: (updatedArticle) => {
       setStatusMessage('Artikel wurde gespeichert.');
       setErrorMessage(null);
+      queryClient.setQueryData(['article-detail', article.id], updatedArticle);
       onUpdated(updatedArticle);
     },
     onError: (mutationError: unknown) => {
@@ -94,6 +118,7 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
     onSuccess: (updatedArticle) => {
       setStatusMessage('Zuweisung aktualisiert.');
       setErrorMessage(null);
+      queryClient.setQueryData(['article-detail', article.id], updatedArticle);
       onUpdated(updatedArticle);
     },
     onError: (mutationError: unknown) => {
@@ -115,7 +140,7 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    const payload = buildArticlePayload(article, formState);
+    const payload = buildArticlePayload(currentArticle, formState);
 
     if (newNote.trim()) {
       payload.notes = newNote.trim();
@@ -154,7 +179,7 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
         <header className="modal-header">
           <div>
             <p className="muted">Artikel</p>
-            <h3>{article.id}</h3>
+            <h3>{currentArticle.id}</h3>
           </div>
           <button type="button" className="ghost-button" onClick={onClose}>Schließen</button>
         </header>
@@ -162,11 +187,11 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
           <form className="modal-form" onSubmit={handleSubmit}>
             <label>
               Artikel-ID
-              <input value={article.id} disabled />
+              <input value={currentArticle.id} disabled />
             </label>
             <label>
               Bezeichnung (automatisch)
-              <input value={article.label} disabled />
+              <input value={currentArticle.label} disabled />
             </label>
             <label>
               Kategorie*
@@ -235,15 +260,6 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
               </div>
             )}
             <label>
-              Notizen (Chronik)
-              <textarea
-                rows={5}
-                value={article.notes ?? ''}
-                readOnly
-                className="note-log"
-              />
-            </label>
-            <label>
               Neue Notiz
               <textarea
                 rows={3}
@@ -257,12 +273,20 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
             </div>
           </form>
           <aside className="modal-sidebar">
-            <div className="sidebar-card">
-              <p className="label">Status</p>
-              <p>{articleStatusLabel(article)}</p>
-              <p className="label">Aktueller Ort</p>
-              <p>{article.location.type === 'kind' ? `Bei ${article.location.name}` : 'Lager'}</p>
-            </div>
+            {timelineEntries.length > 0 && (
+              <div className="sidebar-card">
+                <h4>Verlauf</h4>
+                <ol className="article-timeline">
+                  {timelineEntries.map((entry, index) => (
+                    <li key={`${entry.label}-${entry.date}-${index}`}>
+                      <p className="timeline-label">{entry.label}</p>
+                      <p className="timeline-date">{entry.date}</p>
+                      {entry.meta && <p className="timeline-meta">{entry.meta}</p>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
             <div className="sidebar-card">
               <h4>Zuweisung</h4>
               <label>
@@ -342,19 +366,113 @@ function buildArticlePayload(article: Article, form: ArticleFormState): Record<s
   return payload;
 }
 
-function articleStatusLabel(article: Article): string {
-  switch (article.status) {
-    case 'frei':
-      return 'Im Lager';
-    case 'ausgegeben':
-      return article.location.kindId ? `Bei ${article.location.name}` : 'Ausgegeben';
-    case 'warnung':
-      return 'Warnung aktiv';
+function composeChildName(child: Child): string {
+  return `${child.firstName} ${child.lastName}`.trim();
+}
+
+function buildArticleTimeline(article: Article): TimelineEntry[] {
+  const entries: InternalTimelineEntry[] = [];
+  const movementHistory = (article.movementHistory ?? []).slice(0, 3);
+  movementHistory.forEach((movement) => {
+    const timestamp = movement.performedAt;
+    entries.push({
+      label: describeMovementLabel(movement),
+      date: formatWithTime(timestamp),
+      meta: describeMovementMeta(movement),
+      sortValue: buildSortValue(timestamp),
+    });
+  });
+
+  const noteEntries = (article.noteEntries ?? []).slice(0, 10);
+  noteEntries.forEach((note) => {
+    const timestamp = note.timestamp;
+    entries.push({
+      label: note.label ? `Notiz (${note.label})` : 'Notiz',
+      date: timestamp ? formatWithTime(timestamp) : (note.label ?? '-'),
+      meta: note.text,
+      sortValue: buildSortValue(timestamp),
+    });
+  });
+
+  if (entries.length === 0) {
+    entries.push({
+      label: 'Zuletzt bewegt',
+      date: formatWithTime(article.assignedAt),
+      meta: article.location.type === 'kind' ? `Aktuell bei ${article.location.name}` : 'Aktuell im Lager',
+      sortValue: buildSortValue(article.assignedAt),
+    });
+  }
+
+  return entries
+    .sort((a, b) => b.sortValue - a.sortValue)
+    .map(({ sortValue, ...timelineEntry }) => timelineEntry);
+}
+
+function describeMovementLabel(movement: ArticleMovement): string {
+  const target = summarizeLocation(movement.to);
+  const origin = summarizeLocation(movement.from);
+
+  switch (movement.action) {
+    case 'ausgabe':
+      return movement.to?.type === 'kind' ? `Ausgabe an ${target}` : 'Ausgabe';
+    case 'rueckgabe':
+      return movement.from?.type === 'kind' ? `Rückgabe von ${origin}` : 'Rückgabe ins Lager';
+    case 'transfer':
+      return `Transfer nach ${target}`;
+    case 'create':
+      return 'Artikel angelegt';
+    case 'delete':
+      return 'Artikel entfernt';
+    case 'pruefung_update':
+      return 'Prüfung dokumentiert';
     default:
-      return 'Unbekannt';
+      return 'Aktualisierung';
   }
 }
 
-function composeChildName(child: Child): string {
-  return `${child.firstName} ${child.lastName}`.trim();
+function describeMovementMeta(movement: ArticleMovement): string | undefined {
+  const from = movement.from ? summarizeLocation(movement.from) : null;
+  const to = movement.to ? summarizeLocation(movement.to) : null;
+
+  if (from && to) {
+    return `${from} → ${to}`;
+  }
+
+  if (to) {
+    return `Nach ${to}`;
+  }
+
+  if (from) {
+    return `Von ${from}`;
+  }
+
+  return undefined;
+}
+
+function summarizeLocation(location?: ArticleLocation | null): string {
+  if (!location) {
+    return 'Unbekannt';
+  }
+
+  if (location.name?.trim()) {
+    return location.name;
+  }
+
+  return location.type === 'kind' ? 'Kind' : 'Lager';
+}
+
+function buildSortValue(value?: string | null): number {
+  if (!value) {
+    return 0;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function formatWithTime(value?: string | null): string {
+  if (!value) {
+    return '-';
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : TIMELINE_DATE_TIME.format(date);
 }

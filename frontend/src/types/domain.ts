@@ -10,6 +10,22 @@ export type ArticleLocation = {
   kindId: number | null;
 };
 
+export type ArticleMovement = {
+  id: number;
+  action: string;
+  eventType: string | null;
+  performedAt: string;
+  from: ArticleLocation | null;
+  to: ArticleLocation | null;
+};
+
+export type ArticleNoteEntry = {
+  id: string;
+  timestamp: string | null;
+  label: string | null;
+  text: string;
+};
+
 export type ArticleStatus = 'frei' | 'ausgegeben' | 'warnung';
 
 export type Article = {
@@ -26,6 +42,8 @@ export type Article = {
   helmetLastCheck: string | null;
   helmetManufacturedAt: string | null;
   warning: ArticleWarning | null;
+  movementHistory?: ArticleMovement[];
+  noteEntries?: ArticleNoteEntry[];
 };
 
 export type ChildStatus = 'aktiv' | 'inaktiv';

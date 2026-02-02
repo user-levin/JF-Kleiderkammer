@@ -4,7 +4,7 @@ import { api } from '@api/client';
 import ArticleModal from '@components/ArticleModal';
 import { Article, Child } from 'types/domain';
 import { CATEGORY_PRESETS, CUSTOM_CATEGORY_KEY, matchPresetByCategory } from '@constants/articlePresets';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const DATE_TIME_FORMAT = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 
@@ -22,6 +22,8 @@ export default function Inventar() {
   const [activeArticleId, setActiveArticleId] = useState<string | null>(null);
 
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const childFilter = searchParams.get('child') ?? '';
   const queryClient = useQueryClient();
   const {
     data: articles = [],
@@ -48,6 +50,17 @@ export default function Inventar() {
   });
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
+  const parsedChildFilter = childFilter && !Number.isNaN(Number(childFilter)) ? Number(childFilter) : null;
+
+  const handleChildFilterChange = (value: string) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (value) {
+      nextParams.set('child', value);
+    } else {
+      nextParams.delete('child');
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const filteredArticles = useMemo(() => {
     return articles
@@ -71,6 +84,12 @@ export default function Inventar() {
             return false;
           }
         }
+        if (parsedChildFilter !== null) {
+          if (article.location.type !== 'kind' || article.location.kindId !== parsedChildFilter) {
+            return false;
+          }
+        }
+
         if (!normalizedSearch) {
           return true;
         }
@@ -80,15 +99,19 @@ export default function Inventar() {
         return haystack.includes(normalizedSearch);
       })
       .sort((a, b) => a.id.localeCompare(b.id, 'de-DE'));
-  }, [articles, statusFilter, locationFilter, categoryFilter, warningOnly, normalizedSearch]);
+  }, [articles, statusFilter, locationFilter, categoryFilter, warningOnly, normalizedSearch, parsedChildFilter]);
 
   const activeArticle = useMemo(() => {
     return activeArticleId ? articles.find((candidate) => candidate.id === activeArticleId) ?? null : null;
   }, [articles, activeArticleId]);
 
-  const handleArticleUpdated = (_updatedArticle: Article) => {
+  const activeChildFilter = parsedChildFilter !== null && childrenQuery.data
+    ? childrenQuery.data.find((child) => child.id === parsedChildFilter) ?? null
+    : null;
+
+  const handleArticleUpdated = (updatedArticle: Article) => {
+    setActiveArticleId(updatedArticle.id);
     queryClient.invalidateQueries({ queryKey: ['articles'] });
-    setActiveArticleId(null);
   };
 
   const deleteMutation = useMutation({
@@ -152,7 +175,15 @@ export default function Inventar() {
             ))}
             <option value={CUSTOM_CATEGORY_KEY}>Weitere Kategorien</option>
           </select>
-          <label className="checkbox-inline">
+          <select value={childFilter} onChange={(event) => handleChildFilterChange(event.target.value)}>
+            <option value="">Kinder: Alle</option>
+            {childrenQuery.data?.map((child) => (
+              <option key={child.id} value={child.id}>
+                {child.firstName} {child.lastName}
+              </option>
+            ))}
+          </select>
+          <label className={`filter-toggle ${warningOnly ? 'is-active' : ''}`}>
             <input
               type="checkbox"
               checked={warningOnly}
@@ -172,6 +203,9 @@ export default function Inventar() {
         ) : (
           <>
             <p className="muted">{filteredArticles.length} Artikel angezeigt</p>
+            {activeChildFilter && (
+              <p className="info-text">Gefiltert nach {activeChildFilter.firstName} {activeChildFilter.lastName}</p>
+            )}
             <div className="inventory-table-wrapper">
               <table className="inventory-table">
                 <thead>
