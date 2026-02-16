@@ -35,18 +35,27 @@ const SCAN_SPEED_OPTIONS = {
   delayBetweenScanAttempts: 80,
   delayBetweenScanSuccess: 200
 };
-const DEFAULT_CREATION_STATE = {
+type CreationFormState = {
+  category: string;
+  size: string;
+  notes: string;
+  locationType: 'lager' | 'kind';
+  kindId: string;
+  helmetManufacturedAt: string;
+  categoryKey: string;
+  sizeSelection: string;
+};
+
+const DEFAULT_CREATION_STATE: CreationFormState = {
   category: '',
   size: '',
   notes: '',
-  locationType: 'lager' as const,
+  locationType: 'lager',
   kindId: '',
   helmetManufacturedAt: '',
   categoryKey: '',
   sizeSelection: ''
 };
-
-type CreationFormState = typeof DEFAULT_CREATION_STATE;
 
 export default function Scan() {
   const queryClient = useQueryClient();
@@ -62,6 +71,7 @@ export default function Scan() {
   const cameraLastResultRef = useRef<{ value: string; timestamp: number }>({ value: '', timestamp: 0 });
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
+  const scannerStartInFlightRef = useRef(false);
   const manualInputRef = useRef(manualInput);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
 
@@ -194,15 +204,15 @@ export default function Scan() {
     };
 
     const startScanner = async () => {
+      if (scannerStartInFlightRef.current || scannerControlsRef.current) {
+        return;
+      }
+
       if (cancelled || document.visibilityState !== 'visible') {
         return;
       }
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setCameraError('Dieses Gerät stellt keine Kamera zur Verfügung.');
-        return;
-      }
-
-      if (scannerControlsRef.current) {
         return;
       }
 
@@ -216,9 +226,17 @@ export default function Scan() {
         return;
       }
 
+      scannerStartInFlightRef.current = true;
+
+      let stream: MediaStream | null = null;
+
       try {
-        const controls = await reader.decodeFromConstraints(
-          CAMERA_CONSTRAINTS,
+        stream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
+        videoElement.srcObject = stream;
+        await waitForVideoReady(videoElement);
+        await videoElement.play().catch(() => undefined);
+
+        const controls = await reader.decodeFromVideoElement(
           videoElement,
           (result, error) => {
             if (result) {
@@ -230,18 +248,40 @@ export default function Scan() {
           }
         );
 
+        const wrappedControls: IScannerControls = {
+          stop: () => {
+            controls.stop();
+            stream?.getTracks().forEach((track) => track.stop());
+          }
+        };
+
         if (cancelled) {
-          controls.stop();
+          wrappedControls.stop();
           return;
         }
 
-        scannerControlsRef.current = controls;
+        scannerControlsRef.current = wrappedControls;
       } catch (error) {
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+        }
         setCameraError(error instanceof Error ? error.message : 'Kamera konnte nicht verwendet werden.');
+      } finally {
+        scannerStartInFlightRef.current = false;
       }
     };
 
     startScanner();
+
+    let mobileAutoStartHandler: (() => void) | null = null;
+    if (isMobileDevice()) {
+      mobileAutoStartHandler = () => {
+        if (!scannerControlsRef.current && !scannerStartInFlightRef.current) {
+          startScanner();
+        }
+      };
+      window.addEventListener('pointerdown', mobileAutoStartHandler, { once: true });
+    }
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -256,6 +296,9 @@ export default function Scan() {
     return () => {
       cancelled = true;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (mobileAutoStartHandler) {
+        window.removeEventListener('pointerdown', mobileAutoStartHandler);
+      }
       stopScanner();
     };
   }, [handleCameraDecode]);
@@ -586,6 +629,45 @@ function normalizeArticleId(value: string): string {
   }
   const trimmed = digits.slice(-9);
   return trimmed.padStart(9, '0');
+}
+
+async function waitForVideoReady(videoElement: HTMLVideoElement): Promise<void> {
+  if (videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && videoElement.videoWidth > 0) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('Kamera liefert kein Bild.'));
+    }, 5000);
+
+    const handleLoaded = () => {
+      cleanup();
+      resolve();
+    };
+
+    const handleError = () => {
+      cleanup();
+      reject(new Error('Video konnte nicht initialisiert werden.'));
+    };
+
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      videoElement.removeEventListener('loadedmetadata', handleLoaded);
+      videoElement.removeEventListener('error', handleError);
+    };
+
+    videoElement.addEventListener('loadedmetadata', handleLoaded, { once: true });
+    videoElement.addEventListener('error', handleError, { once: true });
+  });
+}
+
+function isMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent);
 }
 
 function composeChildName(child: Child): string {

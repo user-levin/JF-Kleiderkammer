@@ -18,7 +18,7 @@ CREATE TABLE app_user (
 CREATE TABLE kind (
     id          SERIAL PRIMARY KEY,
     vorname     TEXT NOT NULL,
-    nachname    TEXT NOT NULL,
+    nachname    TEXT NOT NULL,  
     status      TEXT NOT NULL DEFAULT 'aktiv' CHECK (status IN ('aktiv','inaktiv')),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -117,5 +117,6 @@ CREATE UNIQUE INDEX ux_ort_single_kind ON ort (kind_id) WHERE typ = 'kind';
 INSERT INTO ort (typ, name) VALUES ('lager', 'Hauptlager');
 
 -- Beispiel-Admin (Passwort sp?ter setzen: bcrypt-Hash ersetzen)
-INSERT INTO app_user (email, password_hash, role)
-VALUES ('levin.staudte@gmail.com', 'admin', 'admin');
+--INSERT INTO app_user (email, password_hash, role)
+--VALUES ('admin@example.com', 'admin', 'admin');
+

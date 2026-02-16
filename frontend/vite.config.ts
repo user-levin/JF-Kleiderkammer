@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  base: mode === 'development' ? '/' : '/app/',
   plugins: [react()],
   resolve: {
     alias: {
@@ -21,5 +22,9 @@ export default defineConfig({
     port: 5173,
     host: '0.0.0.0'
   },
+  build: {
+    outDir: path.resolve(__dirname, '../src/public/app'),
+    emptyOutDir: true
+  },
   envPrefix: ['VITE_', 'APP_']
-});
+}));

@@ -1,0 +1,10 @@
+.DS_Store
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+src/public/app/
+vendor/
+.env
+.env.*
+.vscode/

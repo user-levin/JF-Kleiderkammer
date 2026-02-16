@@ -1,4 +1,16 @@
 RewriteEngine On
+
+# Serve existing files and directories directly
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# React SPA bundle under /app
+RewriteRule ^app/?$ /app/index.html [L]
+RewriteCond %{REQUEST_URI} ^/app/
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^app/.* /app/index.html [L]
+
+# Default: forward to API front controller
 RewriteRule ^ index.php [QSA,L]

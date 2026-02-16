@@ -9,6 +9,11 @@ const KinderPage = lazy(() => import('@pages/Kinder'));
 const LoginPage = lazy(() => import('@pages/Login'));
 const InventarPage = lazy(() => import('@pages/Inventar'));
 const BenutzerPage = lazy(() => import('@pages/Benutzer'));
+const AbfragePage = lazy(() => import('@pages/Abfrage'));
+
+const assetBase = (import.meta.env.BASE_URL ?? '/').endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -17,7 +22,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <header className="app-header">
         <div className="brand-lockup">
-          <img src="/logo.png" alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
+          <img src={`${assetBase}logo.png`} alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
         </div>
         <button
           type="button"
@@ -32,6 +37,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         <nav className={menuOpen ? 'is-open' : ''}>
           <Link to="/" onClick={() => setMenuOpen(false)}>Dashboard</Link>
           <Link to="/scan" onClick={() => setMenuOpen(false)}>Scannen</Link>
+          <Link to="/abfrage" onClick={() => setMenuOpen(false)}>Abfrage</Link>
           <Link to="/inventar" onClick={() => setMenuOpen(false)}>Inventar</Link>
 
           <Link to="/kinder" onClick={() => setMenuOpen(false)}>Kinder</Link>
@@ -100,6 +106,10 @@ export default function App() {
       <Route
         path="/scan"
         element={renderProtectedRoute(<ScanPage />)}
+      />
+      <Route
+        path="/abfrage"
+        element={renderProtectedRoute(<AbfragePage />)}
       />
       <Route
         path="/kinder"

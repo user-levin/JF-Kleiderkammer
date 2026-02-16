@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
 import { api } from '@api/client';
 
 type Article = {
@@ -39,8 +40,19 @@ type HelmetAlert = {
   severity: 'warning' | 'critical';
 };
 
+type SystemHealth = {
+  app: string;
+  status: 'ok' | 'error';
+  db: 'ok' | 'down';
+  message?: string;
+  detail?: string;
+  timestamp: string;
+};
+
 const WARNING_DAYS = 30;
 const dateFormatter = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium' });
+const timestampFormatter = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+const HEALTH_CHECK_INTERVAL = 60_000;
 
 type DashboardProps = {
   onLogout?: () => void;
@@ -48,6 +60,27 @@ type DashboardProps = {
 
 export default function Dashboard({ onLogout }: DashboardProps) {
   const queryClient = useQueryClient();
+  const {
+    data: systemHealth,
+    isFetching: isCheckingHealth,
+    refetch: refetchSystemHealth
+  } = useQuery<SystemHealth>({
+    queryKey: ['system-health'],
+    queryFn: async () => {
+      try {
+        const response = await api.get<SystemHealth>('/health.php', { headers: { Accept: 'application/json' } });
+        return response.data;
+      } catch (err) {
+        if (isAxiosError(err) && err.response?.data) {
+          return err.response.data as SystemHealth;
+        }
+        throw err;
+      }
+    },
+    refetchInterval: HEALTH_CHECK_INTERVAL,
+    retry: 1
+  });
+
   const { data, isLoading, isFetching, error, refetch } = useQuery<Article[]>({
     queryKey: ['articles'],
     queryFn: async () => {
@@ -183,6 +216,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     retireArticleMutation.mutate(articleId);
   };
 
+  const dbUnavailable = systemHealth?.db === 'down';
+  const lastHealthCheck = dbUnavailable && systemHealth?.timestamp ? formatDateTime(systemHealth.timestamp) : null;
+
   return (
     <div className="dashboard-grid">
       <section className="card">
@@ -198,6 +234,18 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             {onLogout && <button onClick={onLogout}>Logout</button>}
           </div>
         </div>
+        {dbUnavailable && (
+          <div className="debug-banner" role="status">
+            <div>
+              <strong>Datenbankverbindung fehlgeschlagen</strong>
+              <p className="muted">{systemHealth?.message ?? 'Keine Verbindung zur Datenbank möglich.'}</p>
+              {lastHealthCheck && <p className="muted">Letzter Prüfversuch: {lastHealthCheck}</p>}
+            </div>
+            <button className="ghost-button" onClick={() => refetchSystemHealth()} disabled={isCheckingHealth}>
+              {isCheckingHealth ? 'Prüfe...' : 'Erneut prüfen'}
+            </button>
+          </div>
+        )}
         {error && <p className="error">{error instanceof Error ? error.message : 'Fehler beim Laden.'}</p>}
         {isLoading ? (
           <p className="muted">Bestandsdaten werden geladen ...</p>
@@ -378,6 +426,17 @@ function formatDate(value?: string | null): string {
     return value;
   }
   return dateFormatter.format(parsed);
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) {
+    return '-';
+  }
+  const parsed = parseDate(value);
+  if (!parsed) {
+    return value;
+  }
+  return timestampFormatter.format(parsed);
 }
 
 function percentage(value: number, total: number): string {
