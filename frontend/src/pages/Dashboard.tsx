@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@api/client';
 
@@ -22,17 +22,6 @@ type Article = {
   warning: null | { type: 'pruefung' | 'ablauf'; date: string; windowDays: number };
 };
 
-type TypeSizeRow = {
-  key: string;
-  category: string;
-  sizeLabel: string;
-  total: number;
-  children: number;
-  storage: number;
-  childRatio: number;
-  storageRatio: number;
-};
-
 type HelmetAlert = {
   article: Article;
   reason: string;
@@ -48,6 +37,7 @@ type DashboardProps = {
 
 export default function Dashboard({ onLogout }: DashboardProps) {
   const queryClient = useQueryClient();
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const { data, isLoading, isFetching, error, refetch } = useQuery<Article[]>({
     queryKey: ['articles'],
     queryFn: async () => {
@@ -97,53 +87,65 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       .filter((alert): alert is HelmetAlert => Boolean(alert));
   }, [articles]);
 
-  const typeSizeMatrix = useMemo<TypeSizeRow[]>(() => {
-    const map = new Map<string, TypeSizeRow>();
+  // Aggregiere nach Kategorien (nicht nach Größe)
+  const categoryStats = useMemo(() => {
+    const map = new Map<string, { category: string; total: number; children: number; storage: number }>();
 
     for (const article of articles) {
       const category = article.category || 'Unbekannt';
-      const sizeLabel = article.size || 'One Size';
-      const key = `${category.toLowerCase()}__${sizeLabel.toLowerCase()}`;
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          category,
-          sizeLabel,
-          total: 0,
-          children: 0,
-          storage: 0,
-          childRatio: 0,
-          storageRatio: 0
-        });
+      if (!map.has(category)) {
+        map.set(category, { category, total: 0, children: 0, storage: 0 });
       }
-
-      const current = map.get(key)!;
+      const current = map.get(category)!;
       current.total += 1;
       if (article.location.type === 'kind') {
         current.children += 1;
       } else {
         current.storage += 1;
       }
-      current.childRatio = current.total ? current.children / current.total : 0;
-      current.storageRatio = current.total ? current.storage / current.total : 0;
     }
 
-    return Array.from(map.values()).sort((a, b) => {
-      return a.category.localeCompare(b.category, 'de-DE') || a.sizeLabel.localeCompare(b.sizeLabel, 'de-DE');
-    });
+    return Array.from(map.values()).sort((a, b) =>
+      a.category.localeCompare(b.category, 'de-DE')
+    );
   }, [articles]);
 
+  // Größen-Details für ausgewählte Kategorie
+  const categoryDetails = useMemo(() => {
+    if (!selectedCategory) return [];
+
+    const map = new Map<string, { size: string; total: number; children: number; storage: number }>();
+    for (const article of articles) {
+      if (article.category !== selectedCategory) continue;
+      const size = article.size || 'One Size';
+      if (!map.has(size)) {
+        map.set(size, { size, total: 0, children: 0, storage: 0 });
+      }
+      const current = map.get(size)!;
+      current.total += 1;
+      if (article.location.type === 'kind') {
+        current.children += 1;
+      } else {
+        current.storage += 1;
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.size.localeCompare(b.size, 'de-DE')
+    );
+  }, [selectedCategory, articles]);
+
   const shortageItems = useMemo(() => {
-    return typeSizeMatrix
-      .map((row) => ({
-        ...row,
-        demandScore: row.childRatio,
-        shortageLevel: row.storage <= 1 ? 'kritisch' : row.storage <= 3 ? 'niedrig' : 'stabil'
+    return categoryStats
+      .map((cat) => ({
+        ...cat,
+        demandScore: cat.children / cat.total,
+        shortageLevel: cat.storage <= 1 ? 'kritisch' : cat.storage <= 3 ? 'niedrig' : 'stabil'
       }))
-      .filter((row) => row.demandScore >= 0.6 && row.storage <= 3)
+      .filter((cat) => cat.demandScore >= 0.6 && cat.storage <= 3)
       .sort((a, b) => b.demandScore - a.demandScore)
       .slice(0, 6);
-  }, [typeSizeMatrix]);
+  }, [categoryStats]);
 
   const stats = useMemo(() => {
     const total = articles.length;
@@ -230,46 +232,87 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         <div className="card-header">
           <div>
             <h3>Bestandsverteilung</h3>
-            <p className="muted">Artikeltyp x Größe · Kinder vs Lager</p>
+            <p className="muted">Artikel nach Kategorien · Klick für Größen-Details</p>
           </div>
         </div>
-        {typeSizeMatrix.length === 0 ? (
+        {categoryStats.length === 0 ? (
           <p className="muted">Noch keine Artikel vorhanden.</p>
         ) : (
-          <div className="distribution-table-wrapper">
-            <table className="distribution-table">
-              <thead>
-                <tr>
-                  <th>Typ</th>
-                  <th>Größe</th>
-                  <th>Bei Kindern</th>
-                  <th>Im Lager</th>
-                  <th>Gesamt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {typeSizeMatrix.map((row) => (
-                  <tr key={row.key}>
-                    <td>{row.category}</td>
-                    <td>{row.sizeLabel}</td>
-                    <td>
-                      <span>{row.children}</span>
-                      <div className="distribution-bar" aria-label={`Bei Kindern: ${row.children}`}>
-                        <div className="bar bar-children" style={{ width: `${row.childRatio * 100}%` }} />
+          <>
+            <div className="category-chart-container">
+              <div className="category-chart">
+                {categoryStats.map((cat) => {
+                  const maxTotal = Math.max(...categoryStats.map(c => c.total));
+                  const heightPercent = (cat.total / maxTotal) * 100;
+                  return (
+                    <div
+                      key={cat.category}
+                      className={`category-bar-wrapper ${selectedCategory === cat.category ? 'is-active' : ''}`}
+                      onClick={() => setSelectedCategory(selectedCategory === cat.category ? null : cat.category)}
+                    >
+                      <div
+                        className="category-bar"
+                        style={{ height: `${heightPercent}%` }}
+                        title={`${cat.category}: ${cat.total} Artikel (${cat.children} bei Kindern, ${cat.storage} Lager)`}
+                      >
+                        <div className="bar-segment children-segment" style={{ height: `${(cat.children / cat.total) * 100}%` }} />
+                        <div className="bar-segment storage-segment" style={{ height: `${(cat.storage / cat.total) * 100}%` }} />
+                        <span className="bar-label">{cat.total}</span>
                       </div>
-                    </td>
-                    <td>
-                      <span>{row.storage}</span>
-                      <div className="distribution-bar" aria-label={`Im Lager: ${row.storage}`}>
-                        <div className="bar bar-storage" style={{ width: `${row.storageRatio * 100}%` }} />
-                      </div>
-                    </td>
-                    <td>{row.total}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      <p className="category-label">{cat.category}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {selectedCategory && categoryDetails.length > 0 && (
+              <div className="category-details-modal">
+                <div className="modal-card-inner">
+                  <div className="detail-header">
+                    <h4>{selectedCategory}: Größen-Übersicht</h4>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => setSelectedCategory(null)}
+                    >
+                      Schließen
+                    </button>
+                  </div>
+                  <table className="detail-table">
+                    <thead>
+                      <tr>
+                        <th>Größe</th>
+                        <th>Bei Kindern</th>
+                        <th>Im Lager</th>
+                        <th>Gesamt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categoryDetails.map((detail) => (
+                        <tr key={detail.size}>
+                          <td>{detail.size}</td>
+                          <td>
+                            <span>{detail.children}</span>
+                            <div className="distribution-bar">
+                              <div className="bar bar-children" style={{ width: `${(detail.children / detail.total) * 100}%` }} />
+                            </div>
+                          </td>
+                          <td>
+                            <span>{detail.storage}</span>
+                            <div className="distribution-bar">
+                              <div className="bar bar-storage" style={{ width: `${(detail.storage / detail.total) * 100}%` }} />
+                            </div>
+                          </td>
+                          <td>{detail.total}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </section>
 
@@ -285,10 +328,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         ) : (
           <div className="demand-grid">
             {shortageItems.map((item) => (
-              <article key={item.key} className="demand-card">
+              <article key={item.category} className="demand-card">
                 <header>
                   <strong>{item.category}</strong>
-                  <span>Größe {item.sizeLabel}</span>
                 </header>
                 <p className="demand-score">{Math.round(item.demandScore * 100)}% ausgeliehen</p>
                 <p className="muted">Nur {item.storage} im Lager · {item.children} bei Kindern</p>

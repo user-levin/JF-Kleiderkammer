@@ -4,6 +4,7 @@ import './styles/global.css';
 
 const DashboardPage = lazy(() => import('@pages/Dashboard'));
 const ScanPage = lazy(() => import('@pages/Scan'));
+const PublicScanPage = lazy(() => import('@pages/PublicScan'));
 const ArtikelDetailPage = lazy(() => import('@pages/ArtikelDetail'));
 const KinderPage = lazy(() => import('@pages/Kinder'));
 const LoginPage = lazy(() => import('@pages/Login'));
@@ -16,9 +17,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <div className="brand-lockup">
-          <img src="/logo.png" alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
-        </div>
+        <Link to="/" className="brand-lockup" onClick={() => setMenuOpen(false)}>
+          <img src="/ui/logo.png" alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
+        </Link>
         <button
           type="button"
           className="hamburger-button"
@@ -88,6 +89,23 @@ export default function App() {
             <LoginPage onSuccess={handleLogin} />
           </Suspense>
         )}
+      />
+      <Route
+        path="/public/scan"
+        element={
+          <div className="app-shell">
+            <header className="app-header">
+              <Link to="/public/scan" className="brand-lockup">
+                <img src="/ui/logo.png" alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
+              </Link>
+            </header>
+            <main>
+              <Suspense fallback={<div className="card"><p className="muted">Ansicht wird geladen ...</p></div>}>
+                <PublicScanPage />
+              </Suspense>
+            </main>
+          </div>
+        }
       />
       <Route
         path="/"

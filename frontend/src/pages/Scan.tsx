@@ -32,21 +32,63 @@ const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
   audio: false
 };
 const SCAN_SPEED_OPTIONS = {
-  delayBetweenScanAttempts: 80,
-  delayBetweenScanSuccess: 200
+  delayBetweenScanAttempts: 5,
+  delayBetweenScanSuccess: 0
 };
 const DEFAULT_CREATION_STATE = {
   category: '',
   size: '',
   notes: '',
-  locationType: 'lager' as const,
+  locationType: 'lager' as 'lager' | 'kind',
   kindId: '',
   helmetManufacturedAt: '',
+  helmetManufacturedMonth: '',
+  helmetManufacturedYear: '',
   categoryKey: '',
   sizeSelection: ''
 };
 
 type CreationFormState = typeof DEFAULT_CREATION_STATE;
+
+const waitForVideoReady = (video: HTMLVideoElement, timeoutMs = 5000) => {
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0 && video.videoHeight > 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      video.removeEventListener('loadeddata', handleReady);
+      video.removeEventListener('loadedmetadata', handleReady);
+      video.removeEventListener('error', handleError);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    const handleReady = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        cleanup();
+        resolve();
+      }
+    };
+
+    const handleError = () => {
+      cleanup();
+      reject(new Error('Video stream konnte nicht initialisiert werden.'));
+    };
+
+    const timeoutId = timeoutMs
+      ? window.setTimeout(() => {
+        cleanup();
+        reject(new Error('Video-Stream hat keine gültigen Abmessungen geliefert.'));
+      }, timeoutMs)
+      : undefined;
+
+    video.addEventListener('loadeddata', handleReady);
+    video.addEventListener('loadedmetadata', handleReady);
+    video.addEventListener('error', handleError);
+  });
+};
 
 export default function Scan() {
   const queryClient = useQueryClient();
@@ -54,11 +96,13 @@ export default function Scan() {
   const [keyboardScannerMode, setKeyboardScannerMode] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [lastScanValue, setLastScanValue] = useState<string | null>(null);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [activeArticle, setActiveArticle] = useState<Article | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [missingId, setMissingId] = useState<string | null>(null);
   const [lookupMessage, setLookupMessage] = useState<string | null>(null);
   const [creationForm, setCreationForm] = useState<CreationFormState>(() => ({ ...DEFAULT_CREATION_STATE }));
+  const [showCamera, setShowCamera] = useState(true);
   const cameraLastResultRef = useRef<{ value: string; timestamp: number }>({ value: '', timestamp: 0 });
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
@@ -72,6 +116,25 @@ export default function Scan() {
   useEffect(() => {
     manualInputRef.current = manualInput;
   }, [manualInput]);
+
+  useEffect(() => {
+    const detectTouch = () => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+      const coarsePointer = window.matchMedia?.('(pointer: coarse)')?.matches ?? false;
+      const touchCapable = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      setIsTouchDevice(coarsePointer || touchCapable);
+    };
+
+    detectTouch();
+  }, []);
+
+  useEffect(() => {
+    if (isTouchDevice && keyboardScannerMode) {
+      setKeyboardScannerMode(false);
+    }
+  }, [isTouchDevice, keyboardScannerMode]);
 
   const normalizedInput = useMemo(() => normalizeArticleId(manualInput), [manualInput]);
   const normalizedCategory = creationForm.category.trim().toLowerCase();
@@ -97,6 +160,7 @@ export default function Scan() {
       setManualInput(article.id);
       setMissingId(null);
       setLookupMessage(null);
+      setShowCamera(false);
     },
     onError: (error, articleId) => {
       setActiveArticle(null);
@@ -122,6 +186,7 @@ export default function Scan() {
       setMissingId(null);
       setLookupMessage('Artikel wurde angelegt.');
       setManualInput(article.id);
+      setShowCamera(false);
       queryClient.invalidateQueries({ queryKey: ['articles'] });
     },
     onError: (error) => {
@@ -163,6 +228,7 @@ export default function Scan() {
     cameraLastResultRef.current = { value: normalized, timestamp: now };
     setManualInput(normalized);
     setLastScanValue(normalized);
+    setShowCamera(false);
     triggerLookup(normalized);
   }, [triggerLookup]);
 
@@ -217,8 +283,24 @@ export default function Scan() {
       }
 
       try {
-        const controls = await reader.decodeFromConstraints(
-          CAMERA_CONSTRAINTS,
+        const stream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
+        videoElement.srcObject = stream;
+
+        try {
+          await videoElement.play();
+        } catch {
+          // Autoplay kann auf mobilen Geräten blockieren; wir versuchen es trotzdem weiter.
+        }
+
+        await waitForVideoReady(videoElement);
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        const controls = await reader.decodeFromStream(
+          stream,
           videoElement,
           (result, error) => {
             if (result) {
@@ -309,6 +391,7 @@ export default function Scan() {
 
   const handleManualSubmit = (event: FormEvent) => {
     event.preventDefault();
+    setShowCamera(false);
     triggerLookup();
   };
 
@@ -391,11 +474,28 @@ export default function Scan() {
           >
             {keyboardScannerMode ? 'Hardware-Scanner aktiv' : 'Hardware-Scanner einschalten'}
           </button>
+          {!showCamera && (
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                setShowCamera(true);
+                setActiveArticle(null);
+                setIsModalOpen(false);
+                setMissingId(null);
+                setManualInput('');
+                setLookupMessage(null);
+              }}
+            >
+              Scanner zurücksetzen
+            </button>
+          )}
           <p className="scanner-hint">Kamera-Scanner ist nur aktiv, solange du im Scanner-Menü bist.</p>
         </div>
 
         <div className="camera-scanner">
-          <video ref={videoRef} className="scanner-video" playsInline muted autoPlay />
+          {showCamera && <video ref={videoRef} className="scanner-video" playsInline muted autoPlay />}
+          {!showCamera && <p className="info-text">Kamera nach Scan ausgeblendet. Nutze "Scanner zurücksetzen" zum Neuscan.</p>}
         </div>
         {cameraError ? (
           <p className="error-text">{cameraError}</p>
@@ -430,98 +530,179 @@ export default function Scan() {
 
       {missingId && (
         <section className="card">
-          <div className="card-header">
-            <div>
-              <h3>Neuen Artikel anlegen</h3>
-              <p className="muted">ID {missingId}</p>
-            </div>
-          </div>
-          <form className="creation-form" onSubmit={handleCreateSubmit}>
-            <label>
-              Kategorie*
-              <select
-                value={creationForm.categoryKey}
-                onChange={(event) => handleCategorySelect(event.target.value)}
-                required
-              >
-                <option value="">Bitte auswählen</option>
-                {CATEGORY_PRESETS.map((preset) => (
-                  <option key={preset.key} value={preset.key}>{preset.label}</option>
-                ))}
-                <option value={CUSTOM_CATEGORY_KEY}>Eigene Kategorie</option>
-              </select>
-            </label>
-            {creationForm.categoryKey === CUSTOM_CATEGORY_KEY && (
-              <label>
-                Eigene Bezeichnung
-                <input
-                  value={creationForm.category}
-                  onChange={(event) => setCreationForm((prev) => ({ ...prev, category: event.target.value }))}
-                  placeholder="z. B. Schuhe"
-                  required
-                />
-              </label>
-            )}
-            <div className="creation-row">
-              <label>
-                Größe
-                {renderSizeField(creationForm, setCreationForm)}
-              </label>
-              <label>
-                Ort
-                <select
-                  value={creationForm.locationType}
-                  onChange={(event) => setCreationForm((prev) => ({ ...prev, locationType: event.target.value as 'lager' | 'kind', kindId: '' }))}
-                >
-                  <option value="lager">Lager</option>
-                  <option value="kind">Kind</option>
-                </select>
-              </label>
-            </div>
-            {creationForm.locationType === 'kind' && (
-              <label>
-                Kind auswählen
-                <select
-                  value={creationForm.kindId}
-                  onChange={(event) => setCreationForm((prev) => ({ ...prev, kindId: event.target.value }))}
-                >
-                  <option value="">Bitte auswählen</option>
-                  {childrenQuery.data?.map((child) => (
-                    <option key={child.id} value={child.id}>
-                      {composeChildName(child)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label>
-              Notizen
-              <textarea
-                rows={3}
-                value={creationForm.notes}
-                onChange={(event) => setCreationForm((prev) => ({ ...prev, notes: event.target.value }))}
-              />
-            </label>
-            {requireHelmetDate && (
-              <label>
-                Herstellungsdatum (Helm)*
-                <input
-                  type="date"
-                  value={creationForm.helmetManufacturedAt}
-                  onChange={(event) => setCreationForm((prev) => ({ ...prev, helmetManufacturedAt: event.target.value }))}
-                />
-              </label>
-            )}
-            <div className="creation-actions">
-              <button type="submit" disabled={createMutation.isPending}>
-                Artikel speichern
-              </button>
-            </div>
-          </form>
-        </section>
+  <div className="card-header">
+    <div>
+      <h3>Neuen Artikel anlegen</h3>
+      <p className="muted">ID {missingId}</p>
+    </div>
+  </div>
+
+  <form className="creation-form" onSubmit={handleCreateSubmit}>
+    <label>
+      Kategorie*
+      <select
+        value={creationForm.categoryKey}
+        onChange={(event) => handleCategorySelect(event.target.value)}
+        required
+      >
+        <option value="">Bitte auswählen</option>
+        {CATEGORY_PRESETS.map((preset) => (
+          <option key={preset.key} value={preset.key}>
+            {preset.label}
+          </option>
+        ))}
+        <option value={CUSTOM_CATEGORY_KEY}>Eigene Kategorie</option>
+      </select>
+    </label>
+
+    {creationForm.categoryKey === CUSTOM_CATEGORY_KEY && (
+      <label>
+        Eigene Bezeichnung
+        <input
+          value={creationForm.category}
+          onChange={(event) =>
+            setCreationForm((prev) => ({ ...prev, category: event.target.value }))
+          }
+          placeholder="z. B. Schuhe"
+          required
+        />
+      </label>
+    )}
+
+    <div className="creation-row">
+      <label>
+        Größe
+        {renderSizeField(creationForm, setCreationForm)}
+      </label>
+
+      <label>
+        Ort
+        <select
+          value={creationForm.locationType}
+          onChange={(event) =>
+            setCreationForm((prev) => ({
+              ...prev,
+              locationType: event.target.value as 'lager' | 'kind',
+              kindId: ''
+            }))
+          }
+        >
+          <option value="lager">Lager</option>
+          <option value="kind">Kind</option>
+        </select>
+      </label>
+    </div>
+
+    {creationForm.locationType === 'kind' && (
+      <label>
+        Kind auswählen
+        <select
+          value={creationForm.kindId}
+          onChange={(event) =>
+            setCreationForm((prev) => ({ ...prev, kindId: event.target.value }))
+          }
+        >
+          <option value="">Bitte auswählen</option>
+          {childrenQuery.data?.map((child) => (
+            <option key={child.id} value={child.id}>
+              {composeChildName(child)}
+            </option>
+          ))}
+        </select>
+      </label>
+    )}
+
+    <label>
+      Notizen
+      <textarea
+        rows={3}
+        value={creationForm.notes}
+        onChange={(event) =>
+          setCreationForm((prev) => ({ ...prev, notes: event.target.value }))
+        }
+      />
+    </label>
+
+{requireHelmetDate ? (
+  <div className="creation-row">
+    <label>
+      Herstellungsmonat (Helm)*
+      <select
+        value={creationForm.helmetManufacturedMonth}
+        onChange={(e) => {
+          const month = e.target.value;
+          setCreationForm((prev) => {
+            const year = prev.helmetManufacturedYear;
+            return {
+              ...prev,
+              helmetManufacturedMonth: month,
+              helmetManufacturedAt: year && month ? `${year}-${month}-01` : '',
+            };
+          });
+        }}
+        required
+      >
+        <option value="">Monat wählen</option>
+        {[
+          { value: '01', label: '01 - Januar' },
+          { value: '02', label: '02 - Februar' },
+          { value: '03', label: '03 - März' },
+          { value: '04', label: '04 - April' },
+          { value: '05', label: '05 - Mai' },
+          { value: '06', label: '06 - Juni' },
+          { value: '07', label: '07 - Juli' },
+          { value: '08', label: '08 - August' },
+          { value: '09', label: '09 - September' },
+          { value: '10', label: '10 - Oktober' },
+          { value: '11', label: '11 - November' },
+          { value: '12', label: '12 - Dezember' },
+        ].map((month) => (
+          <option key={month.value} value={month.value}>
+            {month.label}
+          </option>
+        ))}
+      </select>
+    </label>
+
+    <label>
+      Herstellungsjahr (Helm)*
+      <select
+        value={creationForm.helmetManufacturedYear}
+        onChange={(e) => {
+          const year = e.target.value;
+          setCreationForm((prev) => {
+            const month = prev.helmetManufacturedMonth;
+            return {
+              ...prev,
+              helmetManufacturedYear: year,
+              helmetManufacturedAt: year && month ? `${year}-${month}-01` : '',
+            };
+          });
+        }}
+        required
+      >
+        <option value="">Jahr wählen</option>
+        {Array.from({ length: 10 }, (_, i) => {
+          const y = String(new Date().getFullYear() - i);
+          return (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          );
+        })}
+      </select>
+    </label>
+  </div>
+) : null}
+
+    <button type="submit" disabled={createMutation.isPending}>
+      Artikel anlegen
+    </button>
+  </form>
+</section>
       )}
 
-      {activeArticle && isModalOpen && (
+      {isModalOpen && activeArticle && (
         <ArticleModal
           article={activeArticle}
           childrenOptions={childrenQuery.data ?? []}

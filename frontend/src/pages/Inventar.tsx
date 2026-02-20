@@ -119,9 +119,15 @@ export default function Inventar() {
       await api.delete(`/api/articles/${articleId}`);
       return articleId;
     },
-    onSuccess: (deletedId) => {
+    onSuccess: async (deletedId) => {
       setActiveArticleId((current) => (current === deletedId ? null : current));
       queryClient.invalidateQueries({ queryKey: ['articles'] });
+      // Warten bis die Query neu geladen ist
+      await queryClient.refetchQueries({ queryKey: ['articles'] });
+    },
+    onError: (error) => {
+      console.error('Fehler beim Löschen:', error);
+      alert(error instanceof Error ? error.message : 'Artikel konnte nicht gelöscht werden.');
     },
   });
 

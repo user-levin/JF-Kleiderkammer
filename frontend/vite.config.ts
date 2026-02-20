@@ -1,12 +1,19 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const certDir = path.resolve(__dirname, 'certs');
+const httpsConfig = {
+  key: fs.readFileSync(path.join(certDir, 'dev-key.pem')),
+  cert: fs.readFileSync(path.join(certDir, 'dev-cert.pem'))
+};
 
 export default defineConfig({
+  base: '/ui/',
   plugins: [react()],
   resolve: {
     alias: {
@@ -19,7 +26,20 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    host: '0.0.0.0'
+    host: '0.0.0.0',
+    https: httpsConfig,
+    proxy: {
+      '/api': {
+        target: 'http://localhost',
+        changeOrigin: true,
+        secure: false
+      },
+      '/health': {
+        target: 'http://localhost',
+        changeOrigin: true,
+        secure: false
+      }
+    }
   },
   envPrefix: ['VITE_', 'APP_']
 });
