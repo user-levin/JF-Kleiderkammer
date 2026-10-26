@@ -1,0 +1,4 @@
+# Das Image braucht nur die Apache-Konfiguration; Code und Oberfläche kommen per Volume.
+# Alles andere (docker-data, node_modules, Backups, .git) bleibt aus dem Build heraus.
+*
+!config/apache/
