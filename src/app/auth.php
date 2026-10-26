@@ -19,9 +19,9 @@ const ROLE_PERMISSIONS = [
     'admin' => [
         'children.view', 'children.create', 'children.edit', 'children.csv',
         'articles.assign', 'articles.edit', 'inventory.export',
-        'users.manage', 'data.backup', 'audit.view',
+        'users.manage', 'data.backup', 'audit.view', 'todos.manage',
     ],
-    'betreuer' => ['children.view', 'articles.assign'],
+    'betreuer' => ['children.view', 'articles.assign', 'todos.manage'],
     'datenbank' => ['children.view', 'children.create', 'children.csv'],
 ];
 

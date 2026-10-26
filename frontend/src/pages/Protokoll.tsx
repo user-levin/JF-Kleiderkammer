@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { api } from '@api/client';
 import { AppUser } from 'types/domain';
 
@@ -124,7 +125,13 @@ export default function Protokoll() {
                       </span>
                     </td>
                     <td>
-                      {entry.summary}
+                      {entry.action.startsWith('article.') && entry.entityId ? (
+                        <Link to={`/artikel/${entry.entityId}`} className="audit-link" title="Artikel öffnen">
+                          {entry.summary}
+                        </Link>
+                      ) : (
+                        entry.summary
+                      )}
                       {hasDetails && (
                         <button
                           type="button"

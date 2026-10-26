@@ -117,6 +117,7 @@ function ensure_schema(PDO $pdo): void
 
     ensure_auth_schema($pdo);
     ensure_audit_schema($pdo);
+    ensure_todo_schema($pdo);
 
     $ensured = true;
 }

@@ -13,7 +13,8 @@ export type Permission =
   | 'inventory.export'
   | 'users.manage'
   | 'data.backup'
-  | 'audit.view';
+  | 'audit.view'
+  | 'todos.manage';
 
 export const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',

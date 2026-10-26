@@ -7,6 +7,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../app/bootstrap.php';
 require_once __DIR__ . '/../app/auth.php';
 require_once __DIR__ . '/../app/audit.php';
+require_once __DIR__ . '/../app/todos.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -219,6 +220,35 @@ switch (true) {
         $result = delete_child($pdo, $childId);
         audit($pdo, 'child.delete', "Kind gelöscht: {$name}", (string) $childId);
         json_response(['data' => $result]);
+
+    case $method === 'GET' && $path === '/api/todos':
+        require_permission($pdo, 'todos.manage');
+        json_response(['data' => list_todos($pdo)]);
+
+    case $method === 'POST' && $path === '/api/todos':
+        $currentUser = require_permission($pdo, 'todos.manage');
+        $todo = create_todo($pdo, $currentUser, read_json_body());
+        audit($pdo, 'todo.create', "Todo angelegt: {$todo['text']}", (string) $todo['id']);
+        json_response(['data' => $todo], 201);
+
+    case $method === 'PATCH' && preg_match('#^/api/todos/([0-9]+)$#', $path, $matches):
+        $currentUser = require_permission($pdo, 'todos.manage');
+        $body = read_json_body();
+        $before = fetch_todo($pdo, (int) $matches[1]);
+        $todo = update_todo($pdo, $currentUser, (int) $matches[1], $body);
+        if ($todo['text'] !== $before['text']) {
+            audit($pdo, 'todo.update', "Todo geändert: {$todo['text']}", (string) $todo['id'], ['Text' => ['von' => $before['text'], 'nach' => $todo['text']]]);
+        }
+        if (($todo['doneAt'] === null) !== ($before['doneAt'] === null)) {
+            audit($pdo, 'todo.done', ($todo['doneAt'] ? 'Todo erledigt: ' : 'Todo wieder offen: ') . $todo['text'], (string) $todo['id']);
+        }
+        json_response(['data' => $todo]);
+
+    case $method === 'DELETE' && preg_match('#^/api/todos/([0-9]+)$#', $path, $matches):
+        require_permission($pdo, 'todos.manage');
+        $todo = delete_todo($pdo, (int) $matches[1]);
+        audit($pdo, 'todo.delete', "Todo gelöscht: {$todo['text']}", (string) $todo['id']);
+        json_response(['data' => ['deleted' => true, 'id' => $todo['id']]]);
 
     case $method === 'GET' && $path === '/api/audit':
         require_permission($pdo, 'audit.view');

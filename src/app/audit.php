@@ -11,6 +11,7 @@ const AUDIT_CATEGORIES = [
     'article' => 'Artikel',
     'child' => 'Kinder',
     'user' => 'Benutzer',
+    'todo' => 'Todos',
     'data' => 'Daten',
 ];
 

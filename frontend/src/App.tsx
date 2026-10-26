@@ -1,6 +1,6 @@
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, AUTH_EXPIRED_EVENT, AuthUser } from '@api/client';
 import { AuthContext, Permission } from './auth';
 import './styles/global.css';
@@ -16,6 +16,7 @@ const LoginPage = lazy(() => import('@pages/Login'));
 const InventarPage = lazy(() => import('@pages/Inventar'));
 const BenutzerPage = lazy(() => import('@pages/Benutzer'));
 const ProtokollPage = lazy(() => import('@pages/Protokoll'));
+const TodosPage = lazy(() => import('@pages/Todos'));
 
 function AppShell({
   children,
@@ -27,6 +28,15 @@ function AppShell({
   onLogout: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const canTodos = user.permissions.includes('todos.manage');
+  // Anzahl offener Todos für die Navigation; teilt sich den Cache mit der Todo-Seite
+  const todosQuery = useQuery({
+    queryKey: ['todos'],
+    queryFn: async () => (await import('@pages/Todos')).fetchTodos(),
+    enabled: canTodos,
+    staleTime: 60_000
+  });
+  const openTodoCount = (todosQuery.data ?? []).filter((todo) => !todo.doneAt).length;
 
   return (
     <div className="app-shell">
@@ -51,6 +61,11 @@ function AppShell({
 
           {user.permissions.includes('children.view') && (
             <Link to="/kinder" onClick={() => setMenuOpen(false)}>Kinder</Link>
+          )}
+          {canTodos && (
+            <Link to="/todos" onClick={() => setMenuOpen(false)}>
+              Todos{openTodoCount > 0 && <span className="nav-count">{openTodoCount}</span>}
+            </Link>
           )}
           {user.permissions.includes('users.manage') && (
             <Link to="/benutzer" onClick={() => setMenuOpen(false)}>Benutzer</Link>
@@ -208,6 +223,10 @@ export default function App() {
       <Route
         path="/benutzer"
         element={renderProtectedRoute(<BenutzerPage />, 'users.manage')}
+      />
+      <Route
+        path="/todos"
+        element={renderProtectedRoute(<TodosPage />, 'todos.manage')}
       />
       <Route
         path="/protokoll"
