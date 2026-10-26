@@ -159,3 +159,49 @@ Optional:
 - Du buchst Ausgaben und Rückgaben direkt am Handy beim Dienst.
 - Du kannst beim Austritt sauber alles zurückholen.
 - Du kannst Sicherheit (Helm gültig? Helm geprüft?) sofort belegen.
+---
+
+## Betrieb
+
+### Datenbank-Backup
+Das Skript `scripts/backup-db.sh` sichert die Datenbank als komprimierten SQL-Dump nach
+`~/kleiderkammer-backups/` und löscht Backups, die älter als 30 Tage sind. Ein abgebrochener
+Dump wird erkannt und verworfen; die Dateien sind nur für den eigenen Benutzer lesbar
+(sie enthalten Namen der Kinder).
+
+**Einrichten auf dem Pi** (einmalig, als Benutzer `jf`):
+
+```bash
+chmod +x ~/Documents/JF-Kleiderkammer/scripts/backup-db.sh
+~/Documents/JF-Kleiderkammer/scripts/backup-db.sh   # einmal von Hand testen
+crontab -e
+```
+
+In der Crontab diese Zeile ergänzen (jeden Tag um 2:30 Uhr):
+
+```
+30 2 * * * /home/jf/Documents/JF-Kleiderkammer/scripts/backup-db.sh >> /home/jf/kleiderkammer-backups/backup.log 2>&1
+```
+
+Optional über Umgebungsvariablen vor dem Skript: `KEEP_DAYS=60` (länger aufheben) oder
+`COPY_TO=/media/jf/USB` (zusätzliche Kopie auf USB-Stick/NAS). Liegen die Backups nur auf der
+SD-Karte des Pi, sind sie bei einem Defekt mit weg – regelmäßig eine Kopie woanders ablegen,
+z. B. vom Mac aus:
+
+```bash
+rsync -avz jf@192.168.112.136:kleiderkammer-backups/ ~/Documents/Kleiderkammer-Backups/
+```
+
+**Wiederherstellen** (ersetzt alle aktuellen Daten!):
+
+```bash
+docker exec kleiderkammer-db psql -U kleid -d kleiderkammer -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+gzip -dc ~/kleiderkammer-backups/kleiderkammer_JJJJ-MM-TT_HHMM.sql.gz | docker exec -i kleiderkammer-db psql -U kleid -d kleiderkammer -v ON_ERROR_STOP=1
+```
+
+### Benutzer und Passwörter
+Ersten Admin anlegen oder ein vergessenes Passwort setzen (Passwort wird verdeckt abgefragt):
+
+```bash
+docker exec -it kleiderkammer-app php /var/www/html/app/cli/set_password.php name@example.de admin
+```
