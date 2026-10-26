@@ -1,3 +1,6 @@
+# Fester Projektname: Container und Volume bleiben gleich, egal wie der Ordner heißt
+name: jf-kleiderkammer
+
 services:
   app:
     build: .
@@ -74,3 +77,5 @@ networks:
 
 volumes:
   pgdata:
+    # Hier liegt die Datenbank. Name fest, damit nie versehentlich ein leeres Volume entsteht.
+    name: jf-kleiderkammer_pgdata
