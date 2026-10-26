@@ -3,6 +3,7 @@ import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, AUTH_EXPIRED_EVENT, AuthUser } from '@api/client';
 import { AuthContext, Permission } from './auth';
+import UserMenu from '@components/UserMenu';
 import './styles/global.css';
 
 const DashboardPage = lazy(() => import('@pages/Dashboard'));
@@ -72,17 +73,11 @@ function AppShell({
               Todos{openTodoCount > 0 && <span className="nav-count">{openTodoCount}</span>}
             </Link>
           )}
-          {user.permissions.includes('users.manage') && (
-            <Link to="/benutzer" onClick={() => setMenuOpen(false)}>Benutzer</Link>
-          )}
           {user.permissions.includes('audit.view') && (
             <Link to="/protokoll" onClick={() => setMenuOpen(false)}>Protokoll</Link>
           )}
-          <Link to="/konto" onClick={() => setMenuOpen(false)} title={user.email}>Konto</Link>
-          <button type="button" className="ghost-button nav-logout" onClick={onLogout} title={user.email}>
-            Abmelden
-          </button>
         </nav>
+        <UserMenu user={user} onLogout={onLogout} />
       </header>
       <main>
         <Suspense fallback={<div className="card"><p className="muted">Ansicht wird geladen ...</p></div>}>
