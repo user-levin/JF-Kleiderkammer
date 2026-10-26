@@ -18,6 +18,7 @@ const BenutzerPage = lazy(() => import('@pages/Benutzer'));
 const ProtokollPage = lazy(() => import('@pages/Protokoll'));
 const TodosPage = lazy(() => import('@pages/Todos'));
 const AusgabePage = lazy(() => import('@pages/Ausgabe'));
+const KontoPage = lazy(() => import('@pages/Konto'));
 
 function AppShell({
   children,
@@ -77,6 +78,7 @@ function AppShell({
           {user.permissions.includes('audit.view') && (
             <Link to="/protokoll" onClick={() => setMenuOpen(false)}>Protokoll</Link>
           )}
+          <Link to="/konto" onClick={() => setMenuOpen(false)} title={user.email}>Konto</Link>
           <button type="button" className="ghost-button nav-logout" onClick={onLogout} title={user.email}>
             Abmelden
           </button>
@@ -227,6 +229,10 @@ export default function App() {
       <Route
         path="/benutzer"
         element={renderProtectedRoute(<BenutzerPage />, 'users.manage')}
+      />
+      <Route
+        path="/konto"
+        element={renderProtectedRoute(<KontoPage />)}
       />
       <Route
         path="/ausgabe"

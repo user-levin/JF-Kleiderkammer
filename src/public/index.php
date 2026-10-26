@@ -44,6 +44,12 @@ switch (true) {
 
     case $method === 'GET' && $path === '/api/auth/me':
         json_response(['data' => current_user($pdo)]);
+
+    case $method === 'POST' && $path === '/api/auth/password':
+        $currentUser = require_login($pdo);
+        change_own_password($pdo, $currentUser, read_json_body());
+        audit($pdo, 'user.password', 'Eigenes Passwort geändert', (string) $currentUser['id']);
+        json_response(['data' => ['changed' => true]]);
 }
 
 // Rechte pro Route: siehe ROLE_PERMISSIONS in app/auth.php.
@@ -991,9 +997,7 @@ function create_user(PDO $pdo, array $payload): array
         json_error('E-Mail ist ungültig.', 422);
     }
 
-    if (trim($password) === '' || strlen($password) < 8) {
-        json_error('Passwort muss mindestens 8 Zeichen enthalten.', 422);
-    }
+    require_valid_new_password($password);
 
     $hash = password_hash($password, PASSWORD_BCRYPT);
 
@@ -1054,9 +1058,7 @@ function update_user(PDO $pdo, array $currentUser, int $userId, array $payload):
 
     if (array_key_exists('password', $payload)) {
         $password = (string) $payload['password'];
-        if (strlen($password) < 8) {
-            json_error('Passwort muss mindestens 8 Zeichen enthalten.', 422);
-        }
+        require_valid_new_password($password);
         $sets[] = 'password_hash = :password_hash';
         $params[':password_hash'] = password_hash($password, PASSWORD_BCRYPT);
         $endSessions = !$isSelf;

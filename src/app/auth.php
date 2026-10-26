@@ -12,6 +12,7 @@ const SESSION_IDLE_SECONDS = 12 * 60 * 60;
 const SESSION_REMEMBER_SECONDS = 30 * 24 * 60 * 60;
 // Ablaufzeit höchstens alle 5 Minuten in die Datenbank schreiben
 const SESSION_TOUCH_SECONDS = 5 * 60;
+const PASSWORD_MIN_LENGTH = 4;
 
 // Rollen und was sie dürfen. Ein Benutzer kann mehrere Rollen haben, die Rechte addieren sich.
 // Ohne Anmeldung (Public) darf man nur Artikel ansehen, ohne Namen der Kinder.
@@ -318,6 +319,38 @@ function login(PDO $pdo, array $payload): array
     audit($pdo, 'auth.login', $remember ? 'Angemeldet (angemeldet bleiben)' : 'Angemeldet', null, [], $user);
 
     return $user;
+}
+
+function require_valid_new_password(string $password): void
+{
+    if (mb_strlen($password) < PASSWORD_MIN_LENGTH) {
+        json_error('Passwort muss mindestens ' . PASSWORD_MIN_LENGTH . ' Zeichen haben.', 422);
+    }
+}
+
+/**
+ * Eigenes Passwort ändern. Andere Sitzungen des Benutzers werden beendet, die aktuelle bleibt.
+ */
+function change_own_password(PDO $pdo, array $user, array $payload): void
+{
+    $current = (string) ($payload['currentPassword'] ?? '');
+    $new = (string) ($payload['newPassword'] ?? '');
+
+    $statement = $pdo->prepare('SELECT password_hash FROM app_user WHERE id = :id');
+    $statement->execute([':id' => $user['id']]);
+    if (!password_verify($current, (string) $statement->fetchColumn())) {
+        usleep(400000);
+        json_error('Aktuelles Passwort ist falsch.', 422);
+    }
+
+    require_valid_new_password($new);
+
+    $pdo->prepare('UPDATE app_user SET password_hash = :hash WHERE id = :id')
+        ->execute([':hash' => password_hash($new, PASSWORD_BCRYPT), ':id' => $user['id']]);
+
+    $token = (string) ($_COOKIE[SESSION_COOKIE] ?? '');
+    $pdo->prepare('DELETE FROM app_session WHERE user_id = :id AND token_hash <> :hash')
+        ->execute([':id' => $user['id'], ':hash' => session_token_hash($token)]);
 }
 
 function logout(PDO $pdo): void

@@ -8,7 +8,7 @@ declare(strict_types=1);
 //
 // Gibt es die E-Mail noch nicht, wird der Benutzer mit den angegebenen Rollen angelegt
 // (kommagetrennt, z. B. betreuer,datenbank; Standard: admin). Bei bestehenden Benutzern
-// bleiben die Rollen unverändert. Das Passwort wird verdeckt abgefragt. Bestehende Sessions
+// bleiben die Rollen unverändert. Das Passwort wird verdeckt abgefragt (mindestens 4 Zeichen). Bestehende Sessions
 // des Benutzers werden beendet.
 
 if (PHP_SAPI !== 'cli') {
@@ -63,8 +63,8 @@ $pdo = db();
 ensure_schema($pdo);
 
 $password = prompt_hidden('Neues Passwort: ');
-if (strlen($password) < 8) {
-    fwrite(STDERR, "Passwort muss mindestens 8 Zeichen haben.\n");
+if (mb_strlen($password) < PASSWORD_MIN_LENGTH) {
+    fwrite(STDERR, 'Passwort muss mindestens ' . PASSWORD_MIN_LENGTH . " Zeichen haben.\n");
     exit(1);
 }
 if (prompt_hidden('Passwort wiederholen: ') !== $password) {

@@ -1041,6 +1041,9 @@ button.ausgabe-undo:hover { border-color: #f87171; color: #f87171; }
 @media (max-width: 640px) {
   .history-item { grid-template-columns: 1fr; }
 }
+.konto-card { max-width: 520px; margin: 0 auto; }
+.konto-card h3 { margin: 1rem 0 0.75rem; font-size: 1rem; }
+.konto-form { display: flex; flex-direction: column; }
 .plain-fieldset { display: contents; border: 0; margin: 0; padding: 0; }
 .user-status { display: inline-flex; align-items: center; font-size: 0.85rem; }
 .user-status.active { color: #34d399; }

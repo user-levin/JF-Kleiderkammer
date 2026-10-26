@@ -18,6 +18,9 @@ export type Permission =
   | 'todos.manage'
   | 'movements.manage';
 
+// Muss zu PASSWORD_MIN_LENGTH in src/app/auth.php passen
+export const PASSWORD_MIN_LENGTH = 4;
+
 export const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
   betreuer: 'Betreuer',

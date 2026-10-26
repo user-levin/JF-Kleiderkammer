@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { api } from '@api/client';
 import { AppUser, UserRole } from 'types/domain';
-import { ROLE_LABELS, useAuth } from '../auth';
+import { PASSWORD_MIN_LENGTH, ROLE_LABELS, useAuth } from '../auth';
 
 const ROLE_OPTIONS: { value: UserRole; description: string }[] = [
   { value: 'admin', description: 'Alles, inkl. Benutzer, Export und Artikel bearbeiten' },
@@ -157,7 +157,7 @@ export default function Benutzer() {
                 autoComplete="new-password"
                 value={formState.password}
                 onChange={(event) => setFormState((prev) => ({ ...prev, password: event.target.value }))}
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
                 required
               />
             </label>
@@ -265,7 +265,7 @@ export default function Benutzer() {
                               type="password"
                               autoComplete="new-password"
                               placeholder="Neues Passwort"
-                              minLength={8}
+                              minLength={PASSWORD_MIN_LENGTH}
                               value={newPassword}
                               onChange={(event) => setNewPassword(event.target.value)}
                               required
