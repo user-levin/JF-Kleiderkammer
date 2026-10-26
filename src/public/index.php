@@ -55,6 +55,11 @@ switch (true) {
 // Rechte pro Route: siehe ROLE_PERMISSIONS in app/auth.php.
 // Ohne Anmeldung (Public) nur lesender Zugriff auf Artikel, ohne Namen der Kinder.
 switch (true) {
+    case $method === 'GET' && $path === '/' && str_contains((string) ($_SERVER['HTTP_ACCEPT'] ?? ''), 'text/html'):
+        // Browser auf der Startadresse direkt zur Oberfläche schicken
+        header('Location: /ui/', true, 302);
+        exit;
+
     case $method === 'GET' && $path === '/health':
     case $method === 'GET' && $path === '/':
         json_response([
