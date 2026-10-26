@@ -12,7 +12,8 @@ export type Permission =
   | 'articles.edit'
   | 'inventory.export'
   | 'users.manage'
-  | 'data.backup';
+  | 'data.backup'
+  | 'audit.view';
 
 export const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',

@@ -18,6 +18,7 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../auth.php';
+require_once __DIR__ . '/../audit.php';
 
 function normalize_bool($value): bool
 {
@@ -78,6 +79,7 @@ $userId = $find->fetchColumn();
 if ($userId === false) {
     $insert = $pdo->prepare('INSERT INTO app_user (email, password_hash, roles, active) VALUES (:email, :hash, :roles, TRUE)');
     $insert->execute([':email' => $email, ':hash' => $hash, ':roles' => roles_to_pg_array($roles)]);
+    audit($pdo, 'user.create', sprintf('Benutzer angelegt über Konsole: %s (%s)', $email, implode(', ', $roles)), null, [], null, 'Konsole');
     fwrite(STDOUT, 'Benutzer ' . $email . ' mit Rollen ' . implode(', ', $roles) . " angelegt.\n");
     exit(0);
 }
@@ -85,4 +87,5 @@ if ($userId === false) {
 $update = $pdo->prepare('UPDATE app_user SET password_hash = :hash, active = TRUE WHERE id = :id');
 $update->execute([':hash' => $hash, ':id' => $userId]);
 $pdo->prepare('DELETE FROM app_session WHERE user_id = :id')->execute([':id' => $userId]);
+audit($pdo, 'user.update', "Passwort für {$email} über Konsole gesetzt", (string) $userId, [], null, 'Konsole');
 fwrite(STDOUT, "Passwort für {$email} gesetzt, alte Sessions beendet.\n");

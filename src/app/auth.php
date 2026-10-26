@@ -19,7 +19,7 @@ const ROLE_PERMISSIONS = [
     'admin' => [
         'children.view', 'children.create', 'children.edit', 'children.csv',
         'articles.assign', 'articles.edit', 'inventory.export',
-        'users.manage', 'data.backup',
+        'users.manage', 'data.backup', 'audit.view',
     ],
     'betreuer' => ['children.view', 'articles.assign'],
     'datenbank' => ['children.view', 'children.create', 'children.csv'],
@@ -284,6 +284,7 @@ function login(PDO $pdo, array $payload): array
     $valid = password_verify($password, $hash);
 
     if (!$row || !$valid || !normalize_bool($row['active'])) {
+        audit($pdo, 'auth.login_failed', "Anmeldung fehlgeschlagen für {$email}", null, [], null, $email);
         usleep(400000);
         json_error('E-Mail oder Passwort falsch.', 401);
     }
@@ -312,7 +313,10 @@ function login(PDO $pdo, array $payload): array
 
     set_session_cookie($token, $remember);
 
-    return public_user($row);
+    $user = public_user($row);
+    audit($pdo, 'auth.login', $remember ? 'Angemeldet (angemeldet bleiben)' : 'Angemeldet', null, [], $user);
+
+    return $user;
 }
 
 function logout(PDO $pdo): void
@@ -320,6 +324,10 @@ function logout(PDO $pdo): void
     $token = (string) ($_COOKIE[SESSION_COOKIE] ?? '');
 
     if ($token !== '') {
+        $user = current_user($pdo);
+        if ($user !== null) {
+            audit($pdo, 'auth.logout', 'Abgemeldet', null, [], $user);
+        }
         $statement = $pdo->prepare('DELETE FROM app_session WHERE token_hash = :hash');
         $statement->execute([':hash' => session_token_hash($token)]);
     }

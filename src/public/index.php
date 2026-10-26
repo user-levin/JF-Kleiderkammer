@@ -6,6 +6,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../app/bootstrap.php';
 require_once __DIR__ . '/../app/auth.php';
+require_once __DIR__ . '/../app/audit.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -60,11 +61,14 @@ switch (true) {
 
     case $method === 'GET' && $path === '/api/children/export':
         require_permission($pdo, 'children.csv');
+        audit($pdo, 'data.children_export', 'Kinderliste als CSV exportiert');
         export_children_csv($pdo);
 
     case $method === 'POST' && $path === '/api/children/import':
         require_permission($pdo, 'children.csv');
-        json_response(['data' => import_children_csv($pdo, read_json_body())]);
+        $result = import_children_csv($pdo, read_json_body());
+        audit($pdo, 'child.import', sprintf('CSV-Import: %d Kinder angelegt, %d übersprungen, %d fehlerhaft', $result['created'], $result['skipped'], count($result['errors'])), null, $result);
+        json_response(['data' => $result]);
 
     case $method === 'GET' && preg_match('#^/api/children/([0-9]+)/articles$#', $path, $matches):
         require_permission($pdo, 'children.view');
@@ -74,7 +78,9 @@ switch (true) {
     case $method === 'POST' && $path === '/api/children':
         require_permission($pdo, 'children.create');
         $body = read_json_body();
-        json_response(['data' => create_child($pdo, $body)], 201);
+        $child = create_child($pdo, $body);
+        audit($pdo, 'child.create', "Kind angelegt: {$child['firstName']} {$child['lastName']}", (string) $child['id']);
+        json_response(['data' => $child], 201);
 
     case $method === 'GET' && $path === '/api/articles':
         $assignedOnly = isset($_GET['assigned']) ? filter_var($_GET['assigned'], FILTER_VALIDATE_BOOLEAN) : false;
@@ -86,7 +92,9 @@ switch (true) {
 
     case $method === 'DELETE' && $path === '/api/articles':
         require_permission($pdo, 'articles.edit');
-        json_response(['data' => purge_articles($pdo)]);
+        $result = purge_articles($pdo);
+        audit($pdo, 'article.purge', 'Alle Artikel gelöscht', null, $result);
+        json_response(['data' => $result]);
 
     case $method === 'GET' && $path === '/api/users':
         require_permission($pdo, 'users.manage');
@@ -94,12 +102,15 @@ switch (true) {
 
     case $method === 'GET' && $path === '/api/data/export':
         require_permission($pdo, 'data.backup');
+        audit($pdo, 'data.export', 'Komplettes Backup exportiert');
         export_data($pdo);
 
     case $method === 'POST' && $path === '/api/data/import':
         require_permission($pdo, 'data.backup');
         $body = read_json_body();
-        json_response(['data' => import_data($pdo, $body)]);
+        $result = import_data($pdo, $body);
+        audit($pdo, 'data.import', 'Backup eingespielt (alle Daten ersetzt)', null, $result['counts'] ?? []);
+        json_response(['data' => $result]);
 
     case $method === 'GET' && preg_match('#^/api/articles/([0-9]+)$#', $path, $matches):
         $articleId = sanitize_article_id($matches[1]);
@@ -113,49 +124,105 @@ switch (true) {
         require_permission($pdo, 'articles.edit');
         $articleId = sanitize_article_id($matches[1]);
         $body = read_json_body();
-        json_response(['data' => update_article($pdo, $articleId, $body)]);
+        $before = fetch_article($pdo, $articleId);
+        $label = article_display_name($pdo, $articleId);
+        $article = update_article($pdo, $articleId, $body);
+        $changes = article_changes($before, $article);
+        if ($changes !== []) {
+            audit($pdo, 'article.update', sprintf('%s geändert: %s', $label, implode(', ', array_keys($changes))), $articleId, $changes);
+        }
+        json_response(['data' => $article]);
 
     case $method === 'POST' && $path === '/api/articles':
         require_permission($pdo, 'articles.edit');
         $body = read_json_body();
-        json_response(['data' => create_article($pdo, $body)], 201);
+        $article = create_article($pdo, $body);
+        audit($pdo, 'article.create', 'Artikel angelegt: ' . article_display_name($pdo, $article['id']), $article['id']);
+        json_response(['data' => $article], 201);
 
     case $method === 'POST' && $path === '/api/users':
         require_permission($pdo, 'users.manage');
         $body = read_json_body();
-        json_response(['data' => create_user($pdo, $body)], 201);
+        $newUser = create_user($pdo, $body);
+        audit($pdo, 'user.create', sprintf('Benutzer angelegt: %s (%s)', $newUser['email'], implode(', ', $newUser['roles'])), (string) $newUser['id']);
+        json_response(['data' => $newUser], 201);
 
     case $method === 'PATCH' && preg_match('#^/api/users/([0-9]+)$#', $path, $matches):
         $currentUser = require_permission($pdo, 'users.manage');
-        json_response(['data' => update_user($pdo, $currentUser, (int) $matches[1], read_json_body())]);
+        $body = read_json_body();
+        $updatedUser = update_user($pdo, $currentUser, (int) $matches[1], $body);
+        $what = [];
+        if (array_key_exists('roles', $body)) {
+            $what[] = 'Rollen: ' . implode(', ', $updatedUser['roles']);
+        }
+        if (array_key_exists('active', $body)) {
+            $what[] = $updatedUser['active'] ? 'aktiviert' : 'deaktiviert';
+        }
+        if (array_key_exists('password', $body)) {
+            $what[] = 'Passwort neu gesetzt';
+        }
+        audit($pdo, 'user.update', "Benutzer {$updatedUser['email']} geändert – " . implode('; ', $what), (string) $updatedUser['id']);
+        json_response(['data' => $updatedUser]);
 
     case $method === 'PATCH' && preg_match('#^/api/articles/([0-9]+)/assignment$#', $path, $matches):
         require_permission($pdo, 'articles.assign');
-        $articleId = $matches[1];
+        $articleId = sanitize_article_id($matches[1]);
         $body = read_json_body();
-        json_response(['data' => update_article_assignment($pdo, $articleId, $body)]);
+        $before = fetch_article($pdo, $articleId);
+        $article = update_article_assignment($pdo, $articleId, $body);
+        if ($before['location'] != $article['location']) {
+            $target = $article['location']['type'] === 'kind' ? "an {$article['location']['name']} ausgegeben" : 'zurück ins Lager';
+            audit($pdo, 'article.assign', article_display_name($pdo, $articleId) . " {$target}", $articleId, [
+                'von' => $before['location']['name'],
+                'nach' => $article['location']['name'],
+            ]);
+        }
+        json_response(['data' => $article]);
 
     case $method === 'POST' && preg_match('#^/api/articles/([0-9]+)/helmet-check$#', $path, $matches):
         require_permission($pdo, 'articles.edit');
-        $articleId = $matches[1];
+        $articleId = sanitize_article_id($matches[1]);
         $body = read_json_body();
-        json_response(['data' => complete_helmet_check($pdo, $articleId, $body)]);
+        $article = complete_helmet_check($pdo, $articleId, $body);
+        audit($pdo, 'article.helmet_check', 'Helmprüfung abgeschlossen: ' . article_display_name($pdo, $articleId) . ", nächste Prüfung {$article['helmetNextCheck']}", $articleId);
+        json_response(['data' => $article]);
 
     case $method === 'DELETE' && preg_match('#^/api/articles/([0-9]+)$#', $path, $matches):
         require_permission($pdo, 'articles.edit');
-        $articleId = $matches[1];
-        json_response(['data' => delete_article($pdo, $articleId)]);
+        $articleId = sanitize_article_id($matches[1]);
+        $label = article_display_name($pdo, $articleId);
+        $result = delete_article($pdo, $articleId);
+        audit($pdo, 'article.delete', "Artikel ausgesondert: {$label}", $articleId);
+        json_response(['data' => $result]);
 
     case $method === 'PATCH' && preg_match('#^/api/children/([0-9]+)$#', $path, $matches):
         require_permission($pdo, 'children.edit');
         $childId = (int) $matches[1];
         $body = read_json_body();
-        json_response(['data' => update_child($pdo, $childId, $body)]);
+        $beforeName = child_display_name($pdo, $childId);
+        $child = update_child($pdo, $childId, $body);
+        $afterName = trim($child['firstName'] . ' ' . $child['lastName']);
+        $what = [];
+        if ($afterName !== $beforeName) {
+            $what[] = "umbenannt in {$afterName}";
+        }
+        if (array_key_exists('status', $body)) {
+            $what[] = "Status {$child['status']}";
+        }
+        audit($pdo, 'child.update', "Kind {$beforeName} geändert" . ($what ? ': ' . implode(', ', $what) : ''), (string) $childId);
+        json_response(['data' => $child]);
 
     case $method === 'DELETE' && preg_match('#^/api/children/([0-9]+)$#', $path, $matches):
         require_permission($pdo, 'children.edit');
         $childId = (int) $matches[1];
-        json_response(['data' => delete_child($pdo, $childId)]);
+        $name = child_display_name($pdo, $childId);
+        $result = delete_child($pdo, $childId);
+        audit($pdo, 'child.delete', "Kind gelöscht: {$name}", (string) $childId);
+        json_response(['data' => $result]);
+
+    case $method === 'GET' && $path === '/api/audit':
+        require_permission($pdo, 'audit.view');
+        json_response(['data' => list_audit_log($pdo, $_GET)]);
 
     default:
         json_error('Not Found', 404);
@@ -1401,6 +1468,31 @@ function fetch_article(PDO $pdo, string $articleId): array
     $noteEntries = extract_note_entries($row['notizen'] ?? null);
 
     return transform_article_row($row, true, $movements, $noteEntries);
+}
+
+/**
+ * Geänderte Felder zwischen zwei Artikel-Ständen, mit deutschen Feldnamen.
+ */
+function article_changes(array $before, array $after): array
+{
+    $labels = [
+        'category' => 'Kategorie',
+        'label' => 'Bezeichnung',
+        'size' => 'Größe',
+        'notes' => 'Notiz',
+        'expiryDate' => 'Ablaufdatum',
+        'helmetManufacturedAt' => 'Herstellungsdatum',
+        'helmetLastCheck' => 'Letzte Prüfung',
+        'helmetNextCheck' => 'Nächste Prüfung',
+    ];
+    $changes = [];
+    foreach ($labels as $key => $label) {
+        if (($before[$key] ?? null) !== ($after[$key] ?? null)) {
+            $changes[$label] = ['von' => $before[$key] ?? null, 'nach' => $after[$key] ?? null];
+        }
+    }
+
+    return $changes;
 }
 
 function transform_article_row(array $row, bool $includeHistory = false, array $movementHistory = [], array $noteEntries = []): array
