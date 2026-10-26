@@ -235,11 +235,12 @@ export default function Dashboard() {
                 <span className="muted">{percentage(stats.children, stats.total)} ausgeliehen</span>
               </article>
             )}
-            <article className="stat-card">
+            <Link to="/inventar?ort=lager" className="stat-card is-clickable" title="Inventar: nur Lager">
               <p className="stat-label">Im Lager</p>
               <p className="stat-value">{stats.storage}</p>
               <span className="muted">{percentage(stats.storage, stats.total)} Reserve</span>
-            </article>
+              <span className="stat-more">Lager ›</span>
+            </Link>
             <button
               type="button"
               className="stat-card is-clickable"

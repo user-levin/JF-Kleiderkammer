@@ -22,16 +22,20 @@ const STATUS_LABELS: Record<Exclude<StatusFilter, 'alle'>, string> = {
 type CategoryFilter = 'alle' | typeof CUSTOM_CATEGORY_KEY | (typeof CATEGORY_PRESETS)[number]['key'];
 
 export default function Inventar() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('alle');
-  const [locationFilter, setLocationFilter] = useState<LocationFilter>('alle');
+  // ?ort=lager bzw. ?ort=kind setzt den Ort-Filter beim Öffnen, z. B. aus dem Dashboard
+  const [locationFilter, setLocationFilter] = useState<LocationFilter>(() => {
+    const ort = searchParams.get('ort');
+    return ort === 'lager' || ort === 'kind' ? ort : 'alle';
+  });
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('alle');
   const [warningOnly, setWarningOnly] = useState(false);
   const [activeArticleId, setActiveArticleId] = useState<string | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
 
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const childFilter = searchParams.get('child') ?? '';
   const queryClient = useQueryClient();
   const { can } = useAuth();
