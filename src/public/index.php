@@ -43,18 +43,8 @@ switch (true) {
         json_response(['data' => current_user($pdo)]);
 }
 
-// Ohne Anmeldung nur lesender Zugriff auf Artikel (für die Public-Seiten)
-$isPublicRequest = $method === 'GET' && (
-    $path === '/health'
-    || $path === '/'
-    || $path === '/api/articles'
-    || preg_match('#^/api/articles/[0-9]+$#', $path) === 1
-);
-
-if (!$isPublicRequest) {
-    require_login($pdo);
-}
-
+// Rechte pro Route: siehe ROLE_PERMISSIONS in app/auth.php.
+// Ohne Anmeldung (Public) nur lesender Zugriff auf Artikel, ohne Namen der Kinder.
 switch (true) {
     case $method === 'GET' && $path === '/health':
     case $method === 'GET' && $path === '/':
@@ -65,70 +55,105 @@ switch (true) {
         ]);
 
     case $method === 'GET' && $path === '/api/children':
+        require_permission($pdo, 'children.view');
         json_response(['data' => list_children($pdo)]);
 
+    case $method === 'GET' && $path === '/api/children/export':
+        require_permission($pdo, 'children.csv');
+        export_children_csv($pdo);
+
+    case $method === 'POST' && $path === '/api/children/import':
+        require_permission($pdo, 'children.csv');
+        json_response(['data' => import_children_csv($pdo, read_json_body())]);
+
     case $method === 'GET' && preg_match('#^/api/children/([0-9]+)/articles$#', $path, $matches):
+        require_permission($pdo, 'children.view');
         $childId = (int) $matches[1];
         json_response(['data' => list_child_articles($pdo, $childId)]);
 
     case $method === 'POST' && $path === '/api/children':
+        require_permission($pdo, 'children.create');
         $body = read_json_body();
         json_response(['data' => create_child($pdo, $body)], 201);
 
     case $method === 'GET' && $path === '/api/articles':
         $assignedOnly = isset($_GET['assigned']) ? filter_var($_GET['assigned'], FILTER_VALIDATE_BOOLEAN) : false;
-        json_response(['data' => list_articles($pdo, ['assignedOnly' => $assignedOnly])]);
+        $articles = list_articles($pdo, ['assignedOnly' => $assignedOnly]);
+        if (!user_can(current_user($pdo), 'children.view')) {
+            $articles = array_map('anonymize_article', $articles);
+        }
+        json_response(['data' => $articles]);
 
     case $method === 'DELETE' && $path === '/api/articles':
+        require_permission($pdo, 'articles.edit');
         json_response(['data' => purge_articles($pdo)]);
 
     case $method === 'GET' && $path === '/api/users':
+        require_permission($pdo, 'users.manage');
         json_response(['data' => list_users($pdo)]);
 
     case $method === 'GET' && $path === '/api/data/export':
+        require_permission($pdo, 'data.backup');
         export_data($pdo);
 
     case $method === 'POST' && $path === '/api/data/import':
+        require_permission($pdo, 'data.backup');
         $body = read_json_body();
         json_response(['data' => import_data($pdo, $body)]);
 
     case $method === 'GET' && preg_match('#^/api/articles/([0-9]+)$#', $path, $matches):
         $articleId = sanitize_article_id($matches[1]);
-        json_response(['data' => fetch_article($pdo, $articleId)]);
+        $article = fetch_article($pdo, $articleId);
+        if (!user_can(current_user($pdo), 'children.view')) {
+            $article = anonymize_article($article);
+        }
+        json_response(['data' => $article]);
 
     case $method === 'PATCH' && preg_match('#^/api/articles/([0-9]+)$#', $path, $matches):
+        require_permission($pdo, 'articles.edit');
         $articleId = sanitize_article_id($matches[1]);
         $body = read_json_body();
         json_response(['data' => update_article($pdo, $articleId, $body)]);
 
     case $method === 'POST' && $path === '/api/articles':
+        require_permission($pdo, 'articles.edit');
         $body = read_json_body();
         json_response(['data' => create_article($pdo, $body)], 201);
 
     case $method === 'POST' && $path === '/api/users':
+        require_permission($pdo, 'users.manage');
         $body = read_json_body();
         json_response(['data' => create_user($pdo, $body)], 201);
 
+    case $method === 'PATCH' && preg_match('#^/api/users/([0-9]+)$#', $path, $matches):
+        $currentUser = require_permission($pdo, 'users.manage');
+        json_response(['data' => update_user($pdo, $currentUser, (int) $matches[1], read_json_body())]);
+
     case $method === 'PATCH' && preg_match('#^/api/articles/([0-9]+)/assignment$#', $path, $matches):
+        require_permission($pdo, 'articles.assign');
         $articleId = $matches[1];
         $body = read_json_body();
         json_response(['data' => update_article_assignment($pdo, $articleId, $body)]);
 
     case $method === 'POST' && preg_match('#^/api/articles/([0-9]+)/helmet-check$#', $path, $matches):
+        require_permission($pdo, 'articles.edit');
         $articleId = $matches[1];
         $body = read_json_body();
         json_response(['data' => complete_helmet_check($pdo, $articleId, $body)]);
 
     case $method === 'DELETE' && preg_match('#^/api/articles/([0-9]+)$#', $path, $matches):
+        require_permission($pdo, 'articles.edit');
         $articleId = $matches[1];
         json_response(['data' => delete_article($pdo, $articleId)]);
 
     case $method === 'PATCH' && preg_match('#^/api/children/([0-9]+)$#', $path, $matches):
+        require_permission($pdo, 'children.edit');
         $childId = (int) $matches[1];
         $body = read_json_body();
         json_response(['data' => update_child($pdo, $childId, $body)]);
 
     case $method === 'DELETE' && preg_match('#^/api/children/([0-9]+)$#', $path, $matches):
+        require_permission($pdo, 'children.edit');
         $childId = (int) $matches[1];
         json_response(['data' => delete_child($pdo, $childId)]);
 
@@ -820,33 +845,34 @@ function delete_child(PDO $pdo, int $childId): array
 
 function list_users(PDO $pdo): array
 {
-    $statement = $pdo->query('SELECT id, email, role, active, created_at FROM app_user ORDER BY lower(email)');
+    $statement = $pdo->query('SELECT id, email, array_to_json(roles) AS roles_json, active, created_at, last_login_at FROM app_user ORDER BY lower(email)');
 
-    return array_map(static fn(array $row) => [
+    return array_map('transform_user_row', $statement->fetchAll());
+}
+
+function transform_user_row(array $row): array
+{
+    return [
         'id' => (int) $row['id'],
         'email' => $row['email'],
-        'role' => $row['role'],
+        'roles' => decode_roles($row['roles_json']),
         'active' => normalize_bool($row['active']),
         'createdAt' => $row['created_at'],
-    ], $statement->fetchAll());
+        'lastLoginAt' => $row['last_login_at'] ?? null,
+    ];
 }
 
 function create_user(PDO $pdo, array $payload): array
 {
     $email = mb_strtolower(trim((string)($payload['email'] ?? '')));
     $password = (string)($payload['password'] ?? '');
-    $role = mb_strtolower(trim((string)($payload['role'] ?? 'leser')));
+    $roles = normalize_roles($payload['roles'] ?? []);
     $activeInput = $payload['active'] ?? true;
     $active = filter_var($activeInput, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
     $active = $active === null ? true : $active;
-    $validRoles = ['leser', 'verwalter', 'admin'];
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         json_error('E-Mail ist ungültig.', 422);
-    }
-
-    if (!in_array($role, $validRoles, true)) {
-        json_error('Rolle ist ungültig.', 422);
     }
 
     if (trim($password) === '' || strlen($password) < 8) {
@@ -855,40 +881,225 @@ function create_user(PDO $pdo, array $payload): array
 
     $hash = password_hash($password, PASSWORD_BCRYPT);
 
-    if ($hash === false) {
-        json_error('Passwort konnte nicht verarbeitet werden.', 500);
-    }
-
-    $pdo->beginTransaction();
-
     try {
-        $statement = $pdo->prepare('INSERT INTO app_user (email, password_hash, role, active) VALUES (:email, :password_hash, :role, :active) RETURNING id, email, role, active, created_at');
+        $statement = $pdo->prepare('INSERT INTO app_user (email, password_hash, roles, active) VALUES (:email, :password_hash, :roles, :active) RETURNING id, email, array_to_json(roles) AS roles_json, active, created_at, last_login_at');
         $statement->execute([
             ':email' => $email,
             ':password_hash' => $hash,
-            ':role' => $role,
-            ':active' => $active,
+            ':roles' => roles_to_pg_array($roles),
+            ':active' => $active ? 'true' : 'false',
         ]);
 
-        $row = $statement->fetch();
-        $pdo->commit();
-
-        return [
-            'id' => (int) $row['id'],
-            'email' => $row['email'],
-            'role' => $row['role'],
-            'active' => normalize_bool($row['active']),
-            'createdAt' => $row['created_at'],
-        ];
+        return transform_user_row($statement->fetch());
     } catch (PDOException $exception) {
-        rollback_if_needed($pdo);
-
         if ($exception->getCode() === '23505') {
             json_error('E-Mail ist bereits vergeben.', 422);
         }
 
         throw $exception;
     }
+}
+
+/**
+ * Rollen, Aktiv-Status oder Passwort eines Benutzers ändern.
+ * Ein Admin kann sich selbst weder deaktivieren noch die Admin-Rolle entziehen.
+ */
+function update_user(PDO $pdo, array $currentUser, int $userId, array $payload): array
+{
+    $find = $pdo->prepare('SELECT id FROM app_user WHERE id = :id');
+    $find->execute([':id' => $userId]);
+    if ($find->fetchColumn() === false) {
+        json_error('Benutzer wurde nicht gefunden.', 404);
+    }
+
+    $isSelf = $userId === $currentUser['id'];
+    $sets = [];
+    $params = [':id' => $userId];
+    $endSessions = false;
+
+    if (array_key_exists('roles', $payload)) {
+        $roles = normalize_roles($payload['roles']);
+        if ($isSelf && !in_array('admin', $roles, true)) {
+            json_error('Du kannst dir die Admin-Rolle nicht selbst entziehen.', 422);
+        }
+        $sets[] = 'roles = :roles';
+        $params[':roles'] = roles_to_pg_array($roles);
+    }
+
+    if (array_key_exists('active', $payload)) {
+        $active = filter_var($payload['active'], FILTER_VALIDATE_BOOLEAN);
+        if ($isSelf && !$active) {
+            json_error('Du kannst dich nicht selbst deaktivieren.', 422);
+        }
+        $sets[] = 'active = :active';
+        $params[':active'] = $active ? 'true' : 'false';
+        $endSessions = $endSessions || !$active;
+    }
+
+    if (array_key_exists('password', $payload)) {
+        $password = (string) $payload['password'];
+        if (strlen($password) < 8) {
+            json_error('Passwort muss mindestens 8 Zeichen enthalten.', 422);
+        }
+        $sets[] = 'password_hash = :password_hash';
+        $params[':password_hash'] = password_hash($password, PASSWORD_BCRYPT);
+        $endSessions = !$isSelf;
+    }
+
+    if ($sets === []) {
+        json_error('Keine Änderungen angegeben.', 422);
+    }
+
+    $statement = $pdo->prepare('UPDATE app_user SET ' . implode(', ', $sets) . ' WHERE id = :id RETURNING id, email, array_to_json(roles) AS roles_json, active, created_at, last_login_at');
+    $statement->execute($params);
+    $row = $statement->fetch();
+
+    if ($endSessions) {
+        $pdo->prepare('DELETE FROM app_session WHERE user_id = :id')->execute([':id' => $userId]);
+    }
+
+    return transform_user_row($row);
+}
+
+/**
+ * Für Besucher ohne Anmeldung: Namen der Kinder entfernen.
+ */
+function anonymize_article(array $article): array
+{
+    $hideChild = static function (?array $location): ?array {
+        if ($location === null || ($location['type'] ?? null) !== 'kind') {
+            return $location;
+        }
+
+        return array_merge($location, ['name' => 'Ausgegeben', 'kindId' => null]);
+    };
+
+    $article['location'] = $hideChild($article['location']);
+
+    if (isset($article['movementHistory'])) {
+        $article['movementHistory'] = array_map(static function (array $movement) use ($hideChild): array {
+            $movement['from'] = $hideChild($movement['from']);
+            $movement['to'] = $hideChild($movement['to']);
+            return $movement;
+        }, $article['movementHistory']);
+    }
+
+    return $article;
+}
+
+function export_children_csv(PDO $pdo): void
+{
+    $rows = $pdo->query('SELECT id, vorname, nachname, status FROM kind ORDER BY lower(nachname), lower(vorname)')->fetchAll();
+
+    $handle = fopen('php://temp', 'r+');
+    // BOM, damit Excel Umlaute als UTF-8 liest; Semikolon für deutsches Excel
+    fwrite($handle, "\xEF\xBB\xBF");
+    fputcsv($handle, ['ID', 'Vorname', 'Nachname', 'Status'], ';', '"', '');
+    foreach ($rows as $row) {
+        fputcsv($handle, [$row['id'], csv_safe($row['vorname']), csv_safe($row['nachname']), $row['status']], ';', '"', '');
+    }
+    rewind($handle);
+    $csv = stream_get_contents($handle);
+    fclose($handle);
+
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="kinder_' . date('Y-m-d') . '.csv"');
+    echo $csv;
+    exit;
+}
+
+function csv_safe(?string $value): string
+{
+    $text = (string) $value;
+
+    // Verhindert, dass Excel Werte wie "=..." als Formel ausführt
+    return preg_match('/^[=+@\t]/', $text) === 1 ? "'" . $text : $text;
+}
+
+/**
+ * Legt Kinder aus einer CSV-Datei an. Bestehende Kinder (gleicher Vor- und Nachname)
+ * werden übersprungen, nichts wird geändert oder gelöscht.
+ * Erwartet eine Kopfzeile mit mindestens "Vorname" und "Nachname"; "Status" ist optional.
+ */
+function import_children_csv(PDO $pdo, array $payload): array
+{
+    $csv = (string) ($payload['csv'] ?? '');
+    $csv = preg_replace('/^\xEF\xBB\xBF/', '', $csv) ?? $csv;
+
+    if (trim($csv) === '') {
+        json_error('Die CSV-Datei ist leer.', 422);
+    }
+
+    $lines = preg_split('/\R/', trim($csv)) ?: [];
+    $delimiter = substr_count($lines[0], ';') >= substr_count($lines[0], ',') ? ';' : ',';
+    $header = array_map(static fn($cell) => mb_strtolower(trim((string) $cell)), str_getcsv($lines[0], $delimiter, '"', ''));
+
+    $firstNameIndex = array_search('vorname', $header, true);
+    $lastNameIndex = array_search('nachname', $header, true);
+    $statusIndex = array_search('status', $header, true);
+
+    if ($firstNameIndex === false || $lastNameIndex === false) {
+        json_error('Die erste Zeile muss die Spalten "Vorname" und "Nachname" enthalten.', 422);
+    }
+
+    $existing = [];
+    foreach ($pdo->query('SELECT lower(vorname) AS v, lower(nachname) AS n FROM kind')->fetchAll() as $row) {
+        $existing[$row['v'] . "\n" . $row['n']] = true;
+    }
+
+    $insertChild = $pdo->prepare('INSERT INTO kind (vorname, nachname, status) VALUES (:vorname, :nachname, :status) RETURNING id');
+    $insertOrt = $pdo->prepare("INSERT INTO ort (typ, name, kind_id) VALUES ('kind', :name, :kind_id)");
+
+    $created = 0;
+    $skipped = 0;
+    $errors = [];
+
+    $pdo->beginTransaction();
+
+    try {
+        foreach (array_slice($lines, 1) as $index => $line) {
+            $lineNumber = $index + 2;
+            if (trim($line) === '') {
+                continue;
+            }
+
+            $cells = str_getcsv($line, $delimiter, '"', '');
+            $firstName = trim((string) ($cells[$firstNameIndex] ?? ''));
+            $lastName = trim((string) ($cells[$lastNameIndex] ?? ''));
+            $status = $statusIndex !== false ? mb_strtolower(trim((string) ($cells[$statusIndex] ?? ''))) : '';
+            $status = $status === '' ? 'aktiv' : $status;
+
+            if ($firstName === '' || $lastName === '') {
+                $errors[] = ['line' => $lineNumber, 'message' => 'Vorname oder Nachname fehlt.'];
+                continue;
+            }
+
+            if (!in_array($status, ['aktiv', 'inaktiv'], true)) {
+                $errors[] = ['line' => $lineNumber, 'message' => "Status \"{$status}\" ist ungültig (aktiv oder inaktiv)."];
+                continue;
+            }
+
+            $key = mb_strtolower($firstName) . "\n" . mb_strtolower($lastName);
+            if (isset($existing[$key])) {
+                $skipped++;
+                continue;
+            }
+
+            $insertChild->execute([':vorname' => $firstName, ':nachname' => $lastName, ':status' => $status]);
+            $childId = (int) $insertChild->fetchColumn();
+            $insertOrt->execute([':name' => sprintf('Kind %s %s', $firstName, $lastName), ':kind_id' => $childId]);
+
+            $existing[$key] = true;
+            $created++;
+        }
+
+        $pdo->commit();
+    } catch (Throwable $throwable) {
+        rollback_if_needed($pdo);
+        throw $throwable;
+    }
+
+    return ['created' => $created, 'skipped' => $skipped, 'errors' => $errors];
 }
 
 function export_data(PDO $pdo): void
@@ -946,7 +1157,7 @@ function import_data(PDO $pdo, array $payload): array
     try {
         $pdo->exec('TRUNCATE TABLE bewegung, artikel, ort, kind, app_user RESTART IDENTITY CASCADE');
 
-        $insertUser = $pdo->prepare('INSERT INTO app_user (id, email, password_hash, role, active, created_at) VALUES (:id, :email, :password_hash, :role, :active, :created_at)');
+        $insertUser = $pdo->prepare('INSERT INTO app_user (id, email, password_hash, roles, active, created_at) VALUES (:id, :email, :password_hash, :roles, :active, :created_at)');
         foreach ($users as $user) {
             if (!is_array($user)) {
                 throw new RuntimeException('Ungültiger Benutzer-Datensatz im Backup.');
@@ -956,7 +1167,7 @@ function import_data(PDO $pdo, array $payload): array
                 ':id' => (int) ($user['id'] ?? 0),
                 ':email' => (string) ($user['email'] ?? ''),
                 ':password_hash' => (string) ($user['password_hash'] ?? ''),
-                ':role' => (string) ($user['role'] ?? 'leser'),
+                ':roles' => roles_to_pg_array(backup_user_roles($user)),
                 ':active' => normalize_bool($user['active'] ?? true),
                 ':created_at' => (string) ($user['created_at'] ?? (new DateTimeImmutable())->format(DateTimeInterface::ATOM)),
             ]);
@@ -1086,16 +1297,33 @@ function build_backup_payload(PDO $pdo): array
 
 function fetch_backup_users(PDO $pdo): array
 {
-    $statement = $pdo->query('SELECT id, email, password_hash, role, active, created_at FROM app_user ORDER BY id');
+    $statement = $pdo->query('SELECT id, email, password_hash, array_to_json(roles) AS roles_json, active, created_at FROM app_user ORDER BY id');
 
     return array_map(static fn(array $row) => [
         'id' => (int) $row['id'],
         'email' => $row['email'],
         'password_hash' => $row['password_hash'],
-        'role' => $row['role'],
+        'roles' => decode_roles($row['roles_json']),
         'active' => normalize_bool($row['active']),
         'created_at' => $row['created_at'],
     ], $statement->fetchAll());
+}
+
+/**
+ * Rollen aus einem Backup-Datensatz; ältere Backups haben noch eine einzelne Rolle.
+ */
+function backup_user_roles(array $user): array
+{
+    if (isset($user['roles']) && is_array($user['roles'])) {
+        return array_values(array_intersect($user['roles'], valid_roles()));
+    }
+
+    return match ((string) ($user['role'] ?? '')) {
+        'admin' => ['admin'],
+        'verwalter' => ['betreuer', 'datenbank'],
+        'leser' => ['betreuer'],
+        default => [],
+    };
 }
 
 function fetch_backup_children(PDO $pdo): array

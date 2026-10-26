@@ -1,9 +1,10 @@
-import { FormEvent, MouseEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { api } from '@api/client';
 import ArticleModal from '@components/ArticleModal';
+import { useAuth } from '../auth';
 import { Article, Child } from 'types/domain';
 
 type ChildFormState = {
@@ -15,9 +16,17 @@ const EMPTY_FORM: ChildFormState = { firstName: '', lastName: '' };
 
 type StatusFilter = 'alle' | 'aktiv' | 'inaktiv';
 
+type ChildImportResult = {
+  created: number;
+  skipped: number;
+  errors: { line: number; message: string }[];
+};
+
 export default function Kinder() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { can } = useAuth();
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('alle');
   const [newChild, setNewChild] = useState<ChildFormState>({ ...EMPTY_FORM });
@@ -203,6 +212,52 @@ export default function Kinder() {
     navigate(`/inventar?child=${childId}`);
   };
 
+  const importMutation = useMutation({
+    mutationFn: async (csv: string) => {
+      const res = await api.post<{ data: ChildImportResult }>('/api/children/import', { csv });
+      return res.data.data;
+    },
+    onSuccess: (result) => {
+      const parts = [`${result.created} Kinder angelegt`, `${result.skipped} schon vorhanden`];
+      const lineErrors = result.errors.map((entry) => `Zeile ${entry.line}: ${entry.message}`);
+      setFeedback(parts.join(', ') + '.');
+      setError(lineErrors.length ? `Nicht übernommen – ${lineErrors.join(' · ')}` : null);
+      queryClient.invalidateQueries({ queryKey: ['children'] });
+    },
+    onError: (mutationError) => {
+      setFeedback(null);
+      setError(resolveErrorMessage(mutationError));
+    }
+  });
+
+  const handleExportCsv = async () => {
+    setError(null);
+    try {
+      const res = await api.get('/api/children/export', { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `kinder_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (exportError) {
+      setError(resolveErrorMessage(exportError));
+    }
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+    setFeedback(null);
+    setError(null);
+    importMutation.mutate(await file.text());
+  };
+
   const handleCloseChildPanel = () => {
     setSelectedChild(null);
     setActiveArticle(null);
@@ -211,7 +266,7 @@ export default function Kinder() {
   return (
     <div className="children-layout">
       <div className="children-columns">
-        <section className="card child-card">
+        {can('children.create') && <section className="card child-card">
           <div className="card-header">
             <div>
               <h2>Kind hinzufügen</h2>
@@ -229,7 +284,7 @@ export default function Kinder() {
             </label>
             <button type="submit" disabled={createMutation.isPending}>Kind speichern</button>
           </form>
-        </section>
+        </section>}
 
         {editingChild && (
           <section className="card child-card">
@@ -267,6 +322,23 @@ export default function Kinder() {
             <h2>Alle Kinder</h2>
             <p className="muted">Suche und Filter anwenden</p>
           </div>
+          {can('children.csv') && (
+            <div className="card-actions">
+              <button type="button" className="ghost-button" onClick={handleExportCsv}>
+                CSV exportieren
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => importInputRef.current?.click()}
+                disabled={importMutation.isPending}
+                title="CSV mit den Spalten Vorname;Nachname (optional Status). Vorhandene Kinder werden übersprungen."
+              >
+                {importMutation.isPending ? 'Importiere …' : 'CSV importieren'}
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,text/csv" hidden onChange={handleImportFile} />
+            </div>
+          )}
           <div className="child-filter-bar">
             <input
               type="search"
@@ -303,7 +375,7 @@ export default function Kinder() {
               <span className={`status-badge ${child.status === 'aktiv' ? 'is-success' : 'is-muted'}`}>
                 {child.status === 'aktiv' ? 'Aktiv' : 'Inaktiv'}
               </span>
-              <div className="child-actions">
+              {can('children.edit') && <div className="child-actions">
                 <button type="button" onClick={() => setEditingChild(child)}>Bearbeiten</button>
                 <button
                   type="button"
@@ -321,7 +393,7 @@ export default function Kinder() {
                 >
                   Löschen
                 </button>
-              </div>
+              </div>}
             </article>
           ))}
         </div>

@@ -22,5 +22,6 @@ api.interceptors.response.use(
 export type AuthUser = {
   id: number;
   email: string;
-  role: string;
+  roles: string[];
+  permissions: string[];
 };

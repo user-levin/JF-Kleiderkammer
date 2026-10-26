@@ -2,6 +2,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-r
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api, AUTH_EXPIRED_EVENT, AuthUser } from '@api/client';
+import { AuthContext, Permission } from './auth';
 import './styles/global.css';
 
 const DashboardPage = lazy(() => import('@pages/Dashboard'));
@@ -47,8 +48,12 @@ function AppShell({
           <Link to="/scan" onClick={() => setMenuOpen(false)}>Scannen</Link>
           <Link to="/inventar" onClick={() => setMenuOpen(false)}>Inventar</Link>
 
-          <Link to="/kinder" onClick={() => setMenuOpen(false)}>Kinder</Link>
-          <Link to="/benutzer" onClick={() => setMenuOpen(false)}>Benutzer</Link>
+          {user.permissions.includes('children.view') && (
+            <Link to="/kinder" onClick={() => setMenuOpen(false)}>Kinder</Link>
+          )}
+          {user.permissions.includes('users.manage') && (
+            <Link to="/benutzer" onClick={() => setMenuOpen(false)}>Benutzer</Link>
+          )}
           <button type="button" className="ghost-button nav-logout" onClick={onLogout} title={user.email}>
             Abmelden
           </button>
@@ -135,14 +140,21 @@ export default function App() {
     }
   }, [navigate, queryClient]);
 
-  const renderProtectedRoute = (component: React.ReactNode) => {
+  const renderProtectedRoute = (component: React.ReactNode, permission?: Permission) => {
     if (user === undefined) {
       return <div className="auth"><p className="muted">Anmeldung wird geprüft ...</p></div>;
     }
     if (user === null) {
       return <Navigate to="/login" replace state={{ from: location.pathname }} />;
     }
-    return <AppShell user={user} onLogout={handleLogout}>{component}</AppShell>;
+    if (permission && !user.permissions.includes(permission)) {
+      return <Navigate to="/" replace />;
+    }
+    return (
+      <AuthContext.Provider value={user}>
+        <AppShell user={user} onLogout={handleLogout}>{component}</AppShell>
+      </AuthContext.Provider>
+    );
   };
 
   const renderPublicRoute = (component: React.ReactNode) => (
@@ -187,11 +199,11 @@ export default function App() {
       />
       <Route
         path="/kinder"
-        element={renderProtectedRoute(<KinderPage />)}
+        element={renderProtectedRoute(<KinderPage />, 'children.view')}
       />
       <Route
         path="/benutzer"
-        element={renderProtectedRoute(<BenutzerPage />)}
+        element={renderProtectedRoute(<BenutzerPage />, 'users.manage')}
       />
       <Route
         path="/artikel/:id"

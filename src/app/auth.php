@@ -13,6 +13,18 @@ const SESSION_REMEMBER_SECONDS = 30 * 24 * 60 * 60;
 // Ablaufzeit höchstens alle 5 Minuten in die Datenbank schreiben
 const SESSION_TOUCH_SECONDS = 5 * 60;
 
+// Rollen und was sie dürfen. Ein Benutzer kann mehrere Rollen haben, die Rechte addieren sich.
+// Ohne Anmeldung (Public) darf man nur Artikel ansehen, ohne Namen der Kinder.
+const ROLE_PERMISSIONS = [
+    'admin' => [
+        'children.view', 'children.create', 'children.edit', 'children.csv',
+        'articles.assign', 'articles.edit', 'inventory.export',
+        'users.manage', 'data.backup',
+    ],
+    'betreuer' => ['children.view', 'articles.assign'],
+    'datenbank' => ['children.view', 'children.create', 'children.csv'],
+];
+
 function ensure_auth_schema(PDO $pdo): void
 {
     $pdo->exec(
@@ -29,6 +41,83 @@ function ensure_auth_schema(PDO $pdo): void
     );
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_app_session_user ON app_session(user_id)');
     $pdo->exec('ALTER TABLE app_user ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ');
+
+    // Einmalige Umstellung von einer Rolle (leser/verwalter/admin) auf mehrere Rollen
+    $pdo->exec(
+        "DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = current_schema() AND table_name = 'app_user' AND column_name = 'role'
+            ) THEN
+                ALTER TABLE app_user ADD COLUMN IF NOT EXISTS roles TEXT[] NOT NULL DEFAULT '{}';
+                UPDATE app_user SET roles = CASE role
+                    WHEN 'admin' THEN ARRAY['admin']
+                    WHEN 'verwalter' THEN ARRAY['betreuer', 'datenbank']
+                    WHEN 'leser' THEN ARRAY['betreuer']
+                    ELSE ARRAY[]::TEXT[]
+                END;
+                ALTER TABLE app_user DROP COLUMN role;
+                ALTER TABLE app_user ADD CONSTRAINT ck_app_user_roles
+                    CHECK (roles <@ ARRAY['admin', 'betreuer', 'datenbank']::TEXT[]);
+            END IF;
+        END $$"
+    );
+}
+
+function valid_roles(): array
+{
+    return array_keys(ROLE_PERMISSIONS);
+}
+
+function permissions_for_roles(array $roles): array
+{
+    $permissions = [];
+    foreach ($roles as $role) {
+        $permissions = array_merge($permissions, ROLE_PERMISSIONS[$role] ?? []);
+    }
+
+    return array_values(array_unique($permissions));
+}
+
+/**
+ * Prüft eine Rollenliste aus einer Anfrage und gibt sie bereinigt zurück.
+ */
+function normalize_roles($input): array
+{
+    if (!is_array($input)) {
+        json_error('Rollen müssen als Liste übergeben werden.', 422);
+    }
+
+    $roles = array_values(array_unique(array_map(
+        static fn($role) => mb_strtolower(trim((string) $role)),
+        $input
+    )));
+
+    foreach ($roles as $role) {
+        if (!in_array($role, valid_roles(), true)) {
+            json_error("Unbekannte Rolle: {$role}", 422);
+        }
+    }
+
+    if ($roles === []) {
+        json_error('Mindestens eine Rolle auswählen.', 422);
+    }
+
+    return $roles;
+}
+
+function roles_to_pg_array(array $roles): string
+{
+    // Rollen sind vorher gegen valid_roles() geprüft, enthalten also keine Sonderzeichen
+    return '{' . implode(',', $roles) . '}';
+}
+
+function decode_roles(?string $json): array
+{
+    $roles = json_decode($json ?? '[]', true);
+
+    return is_array($roles) ? $roles : [];
 }
 
 function session_lifetime(bool $remember): int
@@ -75,10 +164,13 @@ function session_token_hash(string $token): string
 
 function public_user(array $row): array
 {
+    $roles = decode_roles($row['roles_json'] ?? null);
+
     return [
         'id' => (int) $row['id'],
         'email' => $row['email'],
-        'role' => $row['role'],
+        'roles' => $roles,
+        'permissions' => permissions_for_roles($roles),
     ];
 }
 
@@ -101,7 +193,7 @@ function current_user(PDO $pdo): ?array
     }
 
     $statement = $pdo->prepare(
-        'SELECT s.id AS session_id, s.remember, s.last_seen_at, u.id, u.email, u.role
+        'SELECT s.id AS session_id, s.remember, s.last_seen_at, u.id, u.email, array_to_json(u.roles) AS roles_json
          FROM app_session s
          JOIN app_user u ON u.id = s.user_id
          WHERE s.token_hash = :hash AND s.expires_at > NOW() AND u.active = TRUE'
@@ -146,6 +238,22 @@ function require_login(PDO $pdo): array
     return $user;
 }
 
+function user_can(?array $user, string $permission): bool
+{
+    return $user !== null && in_array($permission, $user['permissions'], true);
+}
+
+function require_permission(PDO $pdo, string $permission): array
+{
+    $user = require_login($pdo);
+
+    if (!user_can($user, $permission)) {
+        json_error('Keine Berechtigung für diese Aktion.', 403);
+    }
+
+    return $user;
+}
+
 /**
  * Schreibende Anfragen müssen den Header X-Requested-With tragen. Ein normales Formular
  * oder ein Link von einer fremden Seite kann ihn nicht setzen (Schutz gegen CSRF).
@@ -167,7 +275,7 @@ function login(PDO $pdo, array $payload): array
         json_error('E-Mail und Passwort angeben.', 422);
     }
 
-    $statement = $pdo->prepare('SELECT id, email, role, password_hash, active FROM app_user WHERE email = :email');
+    $statement = $pdo->prepare('SELECT id, email, array_to_json(roles) AS roles_json, password_hash, active FROM app_user WHERE email = :email');
     $statement->execute([':email' => $email]);
     $row = $statement->fetch();
 

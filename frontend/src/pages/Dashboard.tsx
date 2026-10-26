@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@api/client';
 import { CATEGORY_PRESETS } from '../constants/articlePresets';
+import { useAuth } from '../auth';
 
 type Article = {
   id: string;
@@ -43,6 +44,7 @@ const dateFormatter = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium' });
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
+  const { can } = useAuth();
   const { data, isLoading, isFetching, error, refetch } = useQuery<Article[]>({
     queryKey: ['articles'],
     queryFn: async () => {
@@ -237,11 +239,13 @@ export default function Dashboard() {
             <h3>Bestandsverteilung</h3>
             <p className="muted">Horizontaler Vergleich nach Kategorie (Lager vs. Kinder)</p>
           </div>
-          <div className="card-actions">
-            <button className="ghost-button" onClick={handleExportCsv} disabled={articles.length === 0}>
-              Export CSV
-            </button>
-          </div>
+          {can('inventory.export') && (
+            <div className="card-actions">
+              <button className="ghost-button" onClick={handleExportCsv} disabled={articles.length === 0}>
+                Export CSV
+              </button>
+            </div>
+          )}
         </div>
         {categoryStats.length === 0 ? (
           <p className="muted">Noch keine Artikel vorhanden.</p>
@@ -367,7 +371,7 @@ export default function Dashboard() {
                   <li>Nächste Prüfung: {formatDate(alert.article.helmetNextCheck)}</li>
                   <li>Ablaufdatum: {formatDate(alert.article.expiryDate)}</li>
                 </ul>
-                <div className="helmet-actions">
+                {can('articles.edit') && <div className="helmet-actions">
                   <button onClick={() => handleHelmetCheck(alert.article.id)} disabled={helmetCheckMutation.isPending}>
                     Prüfung abschließen
                   </button>
@@ -378,7 +382,7 @@ export default function Dashboard() {
                   >
                     Aussondern
                   </button>
-                </div>
+                </div>}
               </article>
             ))}
           </div>

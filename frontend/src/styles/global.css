@@ -738,6 +738,34 @@ label { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.75
 .user-table th,
 .user-table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
 .user-role-pill { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.85rem; text-transform: capitalize; }
+.user-role-toggles { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+button.user-role-pill {
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+button.user-role-pill.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1300;
+}
+button.user-role-pill.is-off { opacity: 0.6; }
+button.user-role-pill.is-off:hover { opacity: 1; border-color: var(--accent-soft); }
+button.user-role-pill:disabled { cursor: not-allowed; }
+.role-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem 1rem 0.25rem;
+  margin: 0.5rem 0 1rem;
+}
+.role-fieldset legend { padding: 0 0.4rem; font-size: 0.9rem; }
+.role-option { align-items: flex-start; }
+.role-option input { margin-top: 0.2rem; }
+.user-password-form { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.user-password-form input { min-width: 10rem; flex: 1; }
+.plain-fieldset { display: contents; border: 0; margin: 0; padding: 0; }
 .user-status { display: inline-flex; align-items: center; font-size: 0.85rem; }
 .user-status.active { color: #34d399; }
 .user-status.inactive { color: #f87171; }

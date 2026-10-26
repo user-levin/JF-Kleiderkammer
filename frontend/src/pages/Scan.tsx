@@ -5,6 +5,7 @@ import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { NotFoundException } from '@zxing/library';
 import { api } from '@api/client';
 import ArticleModal from '@components/ArticleModal';
+import { useAuth } from '../auth';
 import { Article, Child } from 'types/domain';
 import { CATEGORY_PRESETS, CUSTOM_CATEGORY_KEY, findPresetByKey } from '@constants/articlePresets';
 
@@ -92,6 +93,8 @@ const waitForVideoReady = (video: HTMLVideoElement, timeoutMs = 5000) => {
 
 export default function Scan() {
   const queryClient = useQueryClient();
+  const { can } = useAuth();
+  const canCreate = can('articles.edit');
   const [manualInput, setManualInput] = useState('');
   const [keyboardScannerMode, setKeyboardScannerMode] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -192,8 +195,8 @@ export default function Scan() {
       setActiveArticle(null);
       setIsModalOpen(false);
       if (axios.isAxiosError(error) && error.response?.status === 404) {
-        setMissingId(articleId);
-        setLookupMessage('Kein Artikel gefunden. Du kannst ihn jetzt anlegen.');
+        setMissingId(canCreate ? articleId : null);
+        setLookupMessage(canCreate ? 'Kein Artikel gefunden. Du kannst ihn jetzt anlegen.' : 'Kein Artikel gefunden.');
       } else {
         setMissingId(null);
         setLookupMessage(error instanceof Error ? error.message : 'Unbekannter Fehler.');

@@ -9,7 +9,7 @@ CREATE TABLE app_user (
     id            SERIAL PRIMARY KEY,
     email         TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    role          TEXT NOT NULL CHECK (role IN ('leser','verwalter','admin')),
+    roles         TEXT[] NOT NULL DEFAULT '{}' CHECK (roles <@ ARRAY['admin','betreuer','datenbank']::TEXT[]),
     active        BOOLEAN NOT NULL DEFAULT TRUE,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

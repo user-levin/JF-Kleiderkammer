@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 // Passwort eines Benutzers setzen oder einen neuen Benutzer anlegen.
 //
-//   docker exec -it kleiderkammer-app php /var/www/html/app/cli/set_password.php <email> [rolle]
+//   docker exec -it kleiderkammer-app php /var/www/html/app/cli/set_password.php <email> [rollen]
 //
-// Gibt es die E-Mail noch nicht, wird der Benutzer mit der angegebenen Rolle angelegt
-// (Standard: admin). Das Passwort wird verdeckt abgefragt. Bestehende Sessions des
-// Benutzers werden beendet.
+// Gibt es die E-Mail noch nicht, wird der Benutzer mit den angegebenen Rollen angelegt
+// (kommagetrennt, z. B. betreuer,datenbank; Standard: admin). Bei bestehenden Benutzern
+// bleiben die Rollen unverändert. Das Passwort wird verdeckt abgefragt. Bestehende Sessions
+// des Benutzers werden beendet.
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
@@ -40,16 +41,18 @@ function prompt_hidden(string $label): string
 }
 
 $email = mb_strtolower(trim((string) ($argv[1] ?? '')));
-$role = mb_strtolower(trim((string) ($argv[2] ?? 'admin')));
-$validRoles = ['leser', 'verwalter', 'admin'];
+$roles = array_values(array_filter(array_map(
+    static fn($role) => mb_strtolower(trim($role)),
+    explode(',', (string) ($argv[2] ?? 'admin'))
+)));
 
 if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    fwrite(STDERR, "Aufruf: php set_password.php <email> [rolle]\n");
+    fwrite(STDERR, "Aufruf: php set_password.php <email> [rollen]\n");
     exit(1);
 }
 
-if (!in_array($role, $validRoles, true)) {
-    fwrite(STDERR, 'Rolle muss eine von ' . implode(', ', $validRoles) . " sein.\n");
+if ($roles === [] || array_diff($roles, valid_roles()) !== []) {
+    fwrite(STDERR, 'Rollen müssen aus ' . implode(', ', valid_roles()) . " bestehen.\n");
     exit(1);
 }
 
@@ -73,9 +76,9 @@ $find->execute([':email' => $email]);
 $userId = $find->fetchColumn();
 
 if ($userId === false) {
-    $insert = $pdo->prepare('INSERT INTO app_user (email, password_hash, role, active) VALUES (:email, :hash, :role, TRUE)');
-    $insert->execute([':email' => $email, ':hash' => $hash, ':role' => $role]);
-    fwrite(STDOUT, "Benutzer {$email} mit Rolle {$role} angelegt.\n");
+    $insert = $pdo->prepare('INSERT INTO app_user (email, password_hash, roles, active) VALUES (:email, :hash, :roles, TRUE)');
+    $insert->execute([':email' => $email, ':hash' => $hash, ':roles' => roles_to_pg_array($roles)]);
+    fwrite(STDOUT, 'Benutzer ' . $email . ' mit Rollen ' . implode(', ', $roles) . " angelegt.\n");
     exit(0);
 }
 

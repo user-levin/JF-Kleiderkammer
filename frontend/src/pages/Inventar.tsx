@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@api/client';
 import ArticleModal from '@components/ArticleModal';
+import { useAuth } from '../auth';
 import { Article, Child } from 'types/domain';
 import { CATEGORY_PRESETS, CUSTOM_CATEGORY_KEY, matchPresetByCategory } from '@constants/articlePresets';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -25,6 +26,7 @@ export default function Inventar() {
   const [searchParams, setSearchParams] = useSearchParams();
   const childFilter = searchParams.get('child') ?? '';
   const queryClient = useQueryClient();
+  const { can } = useAuth();
   const {
     data: articles = [],
     isLoading,
@@ -160,9 +162,11 @@ export default function Inventar() {
             <p className="muted">Artikel nach Kind, Kategorie oder Ort finden</p>
           </div>
           <div className="inventory-header-actions">
-            <button type="button" onClick={() => navigate('/scan')}>
-              Artikel hinzufügen
-            </button>
+            {can('articles.edit') && (
+              <button type="button" onClick={() => navigate('/scan')}>
+                Artikel hinzufügen
+              </button>
+            )}
             <button className="ghost-button" type="button" onClick={() => refetch()} disabled={isFetching}>
               {isFetching ? 'Aktualisiere…' : 'Aktualisieren'}
             </button>
@@ -263,14 +267,16 @@ export default function Inventar() {
                           <button type="button" className="ghost-button" onClick={() => setActiveArticleId(article.id)}>
                             Bearbeiten
                           </button>
-                          <button
-                            type="button"
-                            className="ghost-button danger"
-                            onClick={() => handleDeleteArticle(article.id)}
-                            disabled={deleteMutation.isPending}
-                          >
-                            Löschen
-                          </button>
+                          {can('articles.edit') && (
+                            <button
+                              type="button"
+                              className="ghost-button danger"
+                              onClick={() => handleDeleteArticle(article.id)}
+                              disabled={deleteMutation.isPending}
+                            >
+                              Löschen
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

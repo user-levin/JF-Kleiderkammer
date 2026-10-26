@@ -57,12 +57,13 @@ export type Child = {
   articleCount?: number;
 };
 
-export type UserRole = 'leser' | 'verwalter' | 'admin';
+export type UserRole = 'admin' | 'betreuer' | 'datenbank';
 
 export type AppUser = {
   id: number;
   email: string;
-  role: UserRole;
+  roles: UserRole[];
   active: boolean;
   createdAt: string;
+  lastLoginAt: string | null;
 };

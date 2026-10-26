@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@api/client';
+import { useAuth } from '../auth';
 import { Article, ArticleLocation, ArticleMovement, Child } from 'types/domain';
 import { CATEGORY_PRESETS, CUSTOM_CATEGORY_KEY, findPresetByKey, matchPresetByCategory } from '@constants/articlePresets';
 
@@ -46,6 +47,9 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [newNote, setNewNote] = useState('');
   const queryClient = useQueryClient();
+  const { can } = useAuth();
+  const canEdit = can('articles.edit');
+  const canAssign = can('articles.assign');
   const { data: detailedArticle = article } = useQuery({
     queryKey: ['article-detail', article.id],
     queryFn: async () => {
@@ -185,6 +189,7 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
         </header>
         <div className="modal-body">
           <form className="modal-form" onSubmit={handleSubmit}>
+            <fieldset className="plain-fieldset" disabled={!canEdit}>
             <label>
               Artikel-ID
               <input value={currentArticle.id} disabled />
@@ -268,9 +273,12 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
                 placeholder="Wird beim Speichern mit Zeitstempel ergänzt"
               />
             </label>
-            <div className="modal-actions">
-              <button type="submit" disabled={updateMutation.isPending}>Änderungen speichern</button>
-            </div>
+            {canEdit && (
+              <div className="modal-actions">
+                <button type="submit" disabled={updateMutation.isPending}>Änderungen speichern</button>
+              </div>
+            )}
+            </fieldset>
           </form>
           <aside className="modal-sidebar">
             {timelineEntries.length > 0 && (
@@ -287,7 +295,7 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
                 </ol>
               </div>
             )}
-            <div className="sidebar-card">
+            {canAssign && <div className="sidebar-card">
               <h4>Zuweisung</h4>
               <label>
                 Kind auswählen
@@ -308,7 +316,7 @@ export default function ArticleModal({ article, childrenOptions, onClose, onUpda
                   Zurück ins Lager
                 </button>
               </div>
-            </div>
+            </div>}
             {(statusMessage || errorMessage) && (
               <p className={errorMessage ? 'error-text' : 'info-text'}>
                 {errorMessage ?? statusMessage}
