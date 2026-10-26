@@ -1117,6 +1117,26 @@ button.user-dropdown-logout { color: #fca5a5; margin-top: 0.3rem; border-top: 1p
   .app-shell .app-header .user-menu { order: 3; margin-left: 0.75rem; }
   .app-shell .app-header nav { order: 4; margin-left: 0; }
 }
+.stat-card.is-clickable {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  box-shadow: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+button.stat-card.is-clickable { background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border); font-weight: 400; }
+.stat-card.is-clickable:hover,
+.stat-card.is-clickable:focus-visible { border-color: var(--accent); transform: translateY(-2px); outline: none; }
+.stat-card .stat-more { margin-top: auto; padding-top: 0.4rem; align-self: flex-end; font-size: 0.8rem; color: var(--accent-soft); }
+/* Beim Springen aus der Kachel nicht unter dem festen Kopf verschwinden */
+.helmet-section { scroll-margin-top: 120px; }
 .plain-fieldset { display: contents; border: 0; margin: 0; padding: 0; }
 .user-status { display: inline-flex; align-items: center; font-size: 0.85rem; }
 .user-status.active { color: #34d399; }

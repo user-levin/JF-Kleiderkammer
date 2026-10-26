@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@api/client';
 import { CATEGORY_PRESETS } from '../constants/articlePresets';
@@ -49,6 +50,7 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const [openCategory, setOpenCategory] = useState<string | null>(null);
+  const helmetSectionRef = useRef<HTMLElement>(null);
   const { data, isLoading, isFetching, error, refetch } = useQuery<Article[]>({
     queryKey: ['articles'],
     queryFn: async () => {
@@ -214,25 +216,41 @@ export default function Dashboard() {
           <p className="muted">Bestandsdaten werden geladen ...</p>
         ) : (
           <div className="stat-grid">
-            <article className="stat-card">
+            <Link to="/inventar" className="stat-card is-clickable" title="Zum Inventar">
               <p className="stat-label">Artikel insgesamt</p>
               <p className="stat-value">{stats.total}</p>
-            </article>
-            <article className="stat-card">
-              <p className="stat-label">Bei Kindern</p>
-              <p className="stat-value">{stats.children}</p>
-              <span className="muted">{percentage(stats.children, stats.total)} ausgeliehen</span>
-            </article>
+              <span className="stat-more">Inventar ›</span>
+            </Link>
+            {can('children.view') ? (
+              <Link to="/kinder" className="stat-card is-clickable" title="Zu den Kindern">
+                <p className="stat-label">Bei Kindern</p>
+                <p className="stat-value">{stats.children}</p>
+                <span className="muted">{percentage(stats.children, stats.total)} ausgeliehen</span>
+                <span className="stat-more">Kinder ›</span>
+              </Link>
+            ) : (
+              <article className="stat-card">
+                <p className="stat-label">Bei Kindern</p>
+                <p className="stat-value">{stats.children}</p>
+                <span className="muted">{percentage(stats.children, stats.total)} ausgeliehen</span>
+              </article>
+            )}
             <article className="stat-card">
               <p className="stat-label">Im Lager</p>
               <p className="stat-value">{stats.storage}</p>
               <span className="muted">{percentage(stats.storage, stats.total)} Reserve</span>
             </article>
-            <article className="stat-card">
+            <button
+              type="button"
+              className="stat-card is-clickable"
+              onClick={() => helmetSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              title="Zu Helm-Prüfungen & Ablauf"
+            >
               <p className="stat-label">Helme mit Aktion</p>
               <p className="stat-value warning">{stats.helmetsDue}</p>
               <span className="muted">Prüfung oder Ablauf innerhalb 30 Tage</span>
-            </article>
+              <span className="stat-more">Details ›</span>
+            </button>
           </div>
         )}
       </section>
@@ -364,7 +382,7 @@ export default function Dashboard() {
         )}
       </section>
 
-      <section className="card">
+      <section className="card helmet-section" ref={helmetSectionRef}>
         <div className="card-header">
           <div>
             <h3>Helm-Prüfungen & Ablauf</h3>
