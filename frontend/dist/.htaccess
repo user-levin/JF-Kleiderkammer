@@ -1,0 +1,6 @@
+# Alte Adressen /ui/… auf die neue Adresse ohne /ui umleiten (Lesezeichen, alte Links).
+# Interne Weiterleitungen aus ../.htaccess haben kein /ui in der Anfrage und werden normal ausgeliefert.
+RewriteEngine On
+RewriteCond %{THE_REQUEST} \s/ui(/[^\s?]*)?(\?\S*)?\s
+RewriteRule ^(.*)$ /$1 [R=301,L,QSA]
+RewriteRule ^ - [L]

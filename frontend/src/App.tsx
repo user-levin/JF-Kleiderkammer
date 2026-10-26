@@ -45,7 +45,7 @@ function AppShell({
     <div className="app-shell">
       <header className="app-header">
         <Link to="/" className="brand-lockup" onClick={() => setMenuOpen(false)}>
-          <img src="/ui/logo.png" alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
+          <img src="/logo.png" alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
         </Link>
         <button
           type="button"
@@ -95,7 +95,7 @@ function PublicShell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <header className="app-header">
         <Link to="/public" className="brand-lockup" onClick={() => setMenuOpen(false)}>
-          <img src="/ui/logo.png" alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
+          <img src="/logo.png" alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
         </Link>
         <button
           type="button"

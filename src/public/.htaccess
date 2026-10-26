@@ -1,4 +1,16 @@
+# Die Oberfläche (frontend/dist, eingebunden unter ui/) wird direkt unter / ausgeliefert.
 RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^ index.php [QSA,L]
+
+# API und Status an den PHP-Front-Controller
+RewriteRule ^(api|health)(/|$) index.php [QSA,L]
+
+# Echte Dateien hier im Ordner (z. B. health.php für den Docker-Healthcheck)
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# Dateien der Oberfläche (assets/…, logo.png)
+RewriteCond %{DOCUMENT_ROOT}/ui/$1 -f
+RewriteRule ^(.+)$ ui/$1 [L]
+
+# Alles andere sind Seiten der App (React Router)
+RewriteRule ^ ui/index.html [L]

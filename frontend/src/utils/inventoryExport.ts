@@ -81,7 +81,7 @@ type PdfOptions = {
 export async function exportInventoryPdf(articles: Article[], options: PdfOptions) {
   // Erst beim Export laden, damit die Bibliothek nicht jede Seite verlangsamt
   const [{ jsPDF }, { autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-  const logo = await loadImageAsDataUrl('/ui/logo.png').catch(() => null);
+  const logo = await loadImageAsDataUrl('/logo.png').catch(() => null);
 
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
   const pageWidth = doc.internal.pageSize.getWidth();

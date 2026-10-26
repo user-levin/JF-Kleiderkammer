@@ -13,7 +13,7 @@ const httpsConfig = {
 };
 
 export default defineConfig({
-  base: '/ui/',
+  base: '/',
   plugins: [react()],
   resolve: {
     alias: {
