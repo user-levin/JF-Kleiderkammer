@@ -119,6 +119,17 @@ switch (true) {
         audit($pdo, 'data.export', 'Komplettes Backup exportiert');
         export_data($pdo);
 
+    case $method === 'GET' && $path === '/api/backup/download':
+        require_permission($pdo, 'data.backup');
+        $dump = create_sql_dump();
+        audit($pdo, 'data.backup_download', 'Datenbank-Backup heruntergeladen');
+        header('Content-Type: application/gzip');
+        $stamp = (new DateTimeImmutable('now', new DateTimeZone('Europe/Berlin')))->format('Y-m-d_Hi');
+        header('Content-Disposition: attachment; filename="kleiderkammer_' . $stamp . '.sql.gz"');
+        header('Content-Length: ' . strlen($dump));
+        echo $dump;
+        exit;
+
     case $method === 'POST' && $path === '/api/data/import':
         require_permission($pdo, 'data.backup');
         $body = read_json_body();
@@ -1380,6 +1391,39 @@ function import_children_csv(PDO $pdo, array $payload): array
     }
 
     return ['created' => $created, 'skipped' => $skipped, 'errors' => $errors];
+}
+
+/**
+ * Erzeugt einen gzip-komprimierten SQL-Dump der Datenbank – gleiches Format wie scripts/backup-db.sh,
+ * lässt sich also genauso wiederherstellen (siehe README).
+ */
+function create_sql_dump(): string
+{
+    $process = proc_open(
+        ['pg_dump', '--no-owner', '-h', env_string('DB_HOST', 'localhost'), '-p', env_string('DB_PORT', '5432'),
+            '-U', env_string('DB_USER', 'kleid'), '-d', env_string('DB_NAME', 'kleiderkammer')],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        null,
+        ['PGPASSWORD' => env_string('DB_PASS', 'secret'), 'PATH' => '/usr/local/bin:/usr/bin:/bin']
+    );
+
+    if (!is_resource($process)) {
+        json_error('Backup konnte nicht gestartet werden.', 500);
+    }
+
+    $sql = stream_get_contents($pipes[1]);
+    $errors = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exitCode = proc_close($process);
+
+    if ($exitCode !== 0 || !str_contains(substr((string) $sql, -200), 'PostgreSQL database dump complete')) {
+        error_log('pg_dump fehlgeschlagen: ' . $errors);
+        json_error('Backup konnte nicht erstellt werden.', 500);
+    }
+
+    return gzencode((string) $sql, 9);
 }
 
 function export_data(PDO $pdo): void

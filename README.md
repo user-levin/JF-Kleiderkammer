@@ -169,6 +169,10 @@ Das Skript `scripts/backup-db.sh` sichert die Datenbank als komprimierten SQL-Du
 Dump wird erkannt und verworfen; die Dateien sind nur für den eigenen Benutzer lesbar
 (sie enthalten Namen der Kinder).
 
+**Backup im Browser herunterladen:** Als Admin unter *Konto → Datensicherung* auf
+„Backup jetzt herunterladen" klicken. Das erzeugt sofort einen aktuellen Dump im selben Format
+(`kleiderkammer_….sql.gz`), der sich genauso wiederherstellen lässt wie unten beschrieben.
+
 **Einrichten auf dem Pi** (einmalig, als Benutzer `jf`):
 
 ```bash

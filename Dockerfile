@@ -9,6 +9,10 @@ RUN apt-get update \
        curl \
        openssl \
     && docker-php-ext-install pdo pdo_pgsql \
+    # pg_dump für den Backup-Download; Version muss zur Datenbank (postgres:16) passen
+    && apt-get install -y --no-install-recommends postgresql-common \
+    && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+    && apt-get install -y --no-install-recommends postgresql-client-16 \
     && a2enmod rewrite headers ssl \
     && rm -rf /var/lib/apt/lists/*
 

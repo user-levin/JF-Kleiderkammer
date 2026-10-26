@@ -2,9 +2,27 @@ import { FormEvent, useState } from 'react';
 import axios from 'axios';
 import { api } from '@api/client';
 import { PASSWORD_MIN_LENGTH, ROLE_LABELS, useAuth } from '../auth';
+import { downloadBlob } from '../utils/inventoryExport';
 
 export default function Konto() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
+
+  const handleBackupDownload = async () => {
+    setBackupBusy(true);
+    setBackupError(null);
+    try {
+      const res = await api.get('/api/backup/download', { responseType: 'blob' });
+      const disposition = String(res.headers['content-disposition'] ?? '');
+      const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? 'kleiderkammer-backup.sql.gz';
+      downloadBlob(filename, res.data as Blob);
+    } catch {
+      setBackupError('Backup konnte nicht erstellt werden.');
+    } finally {
+      setBackupBusy(false);
+    }
+  };
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [repeatPassword, setRepeatPassword] = useState('');
@@ -96,6 +114,20 @@ export default function Konto() {
           </button>
         </div>
       </form>
+
+      {can('data.backup') && (
+        <div className="konto-backup">
+          <h3>Datensicherung</h3>
+          <p className="muted">
+            Erstellt ein aktuelles Backup der kompletten Datenbank und lädt es herunter (.sql.gz). Die Datei
+            enthält Namen der Kinder und Passwort-Hashes – sicher aufbewahren. Wiederherstellen siehe README.
+          </p>
+          {backupError && <p className="error-text">{backupError}</p>}
+          <button type="button" onClick={handleBackupDownload} disabled={backupBusy}>
+            {backupBusy ? 'Backup wird erstellt …' : 'Backup jetzt herunterladen'}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

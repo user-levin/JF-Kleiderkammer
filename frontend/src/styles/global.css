@@ -78,7 +78,7 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
   z-index: 10;
   box-shadow: 0 20px 30px var(--shadow);
 }
-.app-header nav { display: flex; gap: 1rem; align-items: center; }
+.app-header nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.35rem 1rem; align-items: center; }
 .app-header nav a {
   white-space: nowrap;
   padding: 0.35rem 0.75rem;
@@ -1044,6 +1044,8 @@ button.ausgabe-undo:hover { border-color: #f87171; color: #f87171; }
 .konto-card { max-width: 520px; margin: 0 auto; }
 .konto-card h3 { margin: 1rem 0 0.75rem; font-size: 1rem; }
 .konto-form { display: flex; flex-direction: column; }
+.konto-backup { margin-top: 1.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+.konto-backup p { font-size: 0.9rem; }
 .plain-fieldset { display: contents; border: 0; margin: 0; padding: 0; }
 .user-status { display: inline-flex; align-items: center; font-size: 0.85rem; }
 .user-status.active { color: #34d399; }
