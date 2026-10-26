@@ -18,6 +18,8 @@ services:
     volumes:
       - ./src:/var/www/html:rw
       - ./frontend/dist:/var/www/html/public/ui:ro
+      # Eigenes Zertifikat (scripts/create-local-ca.sh); fehlt es, wird ein selbstsigniertes genutzt
+      - ./config/ssl:/etc/kleiderkammer-ssl:ro
     depends_on:
       db:
         condition: service_healthy

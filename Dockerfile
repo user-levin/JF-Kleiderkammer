@@ -29,4 +29,7 @@ RUN openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -out /etc/ssl/certs/self-signed.crt \
     -subj "/C=DE/ST=State/L=City/O=Org/CN=localhost"
 
-CMD ["apache2-foreground"]
+COPY config/apache/start.sh /usr/local/bin/kleiderkammer-start
+RUN chmod +x /usr/local/bin/kleiderkammer-start
+
+CMD ["kleiderkammer-start"]

@@ -16,6 +16,9 @@ db/*.sql
 # Alte Build-Kopie (die UI wird per Volume aus frontend/dist eingebunden)
 src/public/ui/dist/
 
+# Server-Zertifikat und privater Schlüssel (scripts/create-local-ca.sh)
+config/ssl/
+
 # Nur für die lokale Entwicklung auf dem Mac
 docker-compose.local.yml
 frontend/vite.preview-local.config.ts

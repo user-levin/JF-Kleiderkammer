@@ -234,6 +234,44 @@ docker exec kleiderkammer-db psql -U kleid -d kleiderkammer -c "DROP SCHEMA publ
 gzip -dc ~/kleiderkammer-backups/kleiderkammer_JJJJ-MM-TT_HHMM.sql.gz | docker exec -i kleiderkammer-db psql -U kleid -d kleiderkammer -v ON_ERROR_STOP=1
 ```
 
+### HTTPS ohne Zertifikatswarnung (eigene lokale CA)
+Mit einer eigenen Zertifizierungsstelle (CA) verschwindet die Warnung im Browser, und Browser bzw.
+Passwortmanager bieten das Speichern des Logins an. Die CA ist nur auf euren Geräten gültig und darf
+nur Zertifikate für die angegebenen Adressen ausstellen – für andere Webseiten taugt sie nicht.
+
+1. **Zertifikat erzeugen** (auf dem Mac im Projektordner, einmalig):
+   ```bash
+   scripts/create-local-ca.sh 192.168.112.136
+   ```
+   Das legt die CA in `~/.kleiderkammer-ca/` an (`ca.key` bleibt auf dem Mac und wird nie
+   weitergegeben) und das Server-Zertifikat in `config/ssl/`.
+2. **Auf den Pi bringen** (zusammen mit dem restlichen Projekt oder einzeln) und neu starten:
+   ```bash
+   rsync -avz config/ssl/ jf@192.168.112.136:Documents/JF-Kleiderkammer/config/ssl/
+   ssh jf@192.168.112.136 'cd ~/Documents/JF-Kleiderkammer && docker compose up -d --force-recreate app'
+   ```
+   `docker logs kleiderkammer-app` zeigt danach „SSL: nutze eigenes Zertifikat aus config/ssl".
+3. **`~/.kleiderkammer-ca/ca.crt` auf jedem Gerät als vertrauenswürdig installieren:**
+   - **Mac:** Doppelklick → Schlüsselbund „System" → Zertifikat öffnen → *Vertrauen* →
+     „Immer vertrauen".
+   - **iPhone/iPad:** Datei per AirDrop/Mail schicken → *Einstellungen → Profil geladen* →
+     installieren → danach *Einstellungen → Allgemein → Info → Zertifikatsvertrauenseinstellungen*
+     → für „Kleiderkammer Lokale CA" einschalten.
+   - **Android:** *Einstellungen → Sicherheit → Verschlüsselung & Anmeldedaten → Zertifikat
+     installieren → CA-Zertifikat*.
+   - **Windows:** Doppelklick → *Zertifikat installieren* → Speicherort „Vertrauenswürdige
+     Stammzertifizierungsstellen".
+   - **Firefox** nutzt einen eigenen Speicher: *Einstellungen → Datenschutz & Sicherheit →
+     Zertifikate anzeigen → Zertifizierungsstellen → Importieren*.
+4. Seite neu laden – das Schloss erscheint ohne Warnung.
+
+Das Server-Zertifikat ist 825 Tage gültig (Höchstwert für Apple-Geräte). Danach das Skript erneut
+ausführen – es nutzt die vorhandene CA, auf den Geräten muss nichts neu installiert werden. Ohne
+`config/ssl` startet die App weiterhin mit dem selbstsignierten Zertifikat.
+
+Passkeys funktionieren damit noch nicht: Browser erlauben sie nur für Domainnamen, nicht für
+IP-Adressen.
+
 ### Benutzer und Passwörter
 Ersten Admin anlegen oder ein vergessenes Passwort setzen (Passwort wird verdeckt abgefragt):
 
