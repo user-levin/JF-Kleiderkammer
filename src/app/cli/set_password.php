@@ -20,6 +20,7 @@ require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../auth.php';
 require_once __DIR__ . '/../audit.php';
 require_once __DIR__ . '/../todos.php';
+require_once __DIR__ . '/../movements.php';
 
 function normalize_bool($value): bool
 {

@@ -19,7 +19,7 @@ const ROLE_PERMISSIONS = [
     'admin' => [
         'children.view', 'children.create', 'children.edit', 'children.csv',
         'articles.assign', 'articles.edit', 'inventory.export', 'inventory.import',
-        'users.manage', 'data.backup', 'audit.view', 'todos.manage',
+        'users.manage', 'data.backup', 'audit.view', 'todos.manage', 'movements.manage',
     ],
     'betreuer' => ['children.view', 'articles.assign', 'todos.manage'],
     'datenbank' => ['children.view', 'children.create', 'children.csv'],
@@ -223,6 +223,7 @@ function current_user(PDO $pdo): ?array
     }
 
     $user = public_user($row);
+    set_db_user($pdo, $user);
 
     return $user;
 }

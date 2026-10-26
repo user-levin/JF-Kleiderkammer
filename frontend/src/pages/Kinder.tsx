@@ -375,6 +375,11 @@ export default function Kinder() {
               <span className={`status-badge ${child.status === 'aktiv' ? 'is-success' : 'is-muted'}`}>
                 {child.status === 'aktiv' ? 'Aktiv' : 'Inaktiv'}
               </span>
+              {can('articles.assign') && (
+                <button type="button" className="ghost-button" onClick={() => navigate(`/ausgabe?kind=${child.id}`)}>
+                  Ausgabe
+                </button>
+              )}
               {can('children.edit') && <div className="child-actions">
                 <button type="button" onClick={() => setEditingChild(child)}>Bearbeiten</button>
                 <button

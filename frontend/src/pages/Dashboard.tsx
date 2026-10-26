@@ -4,6 +4,7 @@ import { api } from '@api/client';
 import { CATEGORY_PRESETS } from '../constants/articlePresets';
 import { useAuth } from '../auth';
 import CategoryDetailModal from '@components/CategoryDetailModal';
+import MovementHistory from '@components/MovementHistory';
 import { exportInventoryCsv } from '../utils/inventoryExport';
 
 type Article = {
@@ -322,6 +323,8 @@ export default function Dashboard() {
           </div>
         )}
       </section>
+
+      {can('movements.manage') && <MovementHistory />}
 
       {openCategory && (
         <CategoryDetailModal

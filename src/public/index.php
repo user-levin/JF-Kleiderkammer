@@ -8,6 +8,7 @@ require_once __DIR__ . '/../app/bootstrap.php';
 require_once __DIR__ . '/../app/auth.php';
 require_once __DIR__ . '/../app/audit.php';
 require_once __DIR__ . '/../app/todos.php';
+require_once __DIR__ . '/../app/movements.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -225,6 +226,18 @@ switch (true) {
         $name = child_display_name($pdo, $childId);
         $result = delete_child($pdo, $childId);
         audit($pdo, 'child.delete', "Kind gelöscht: {$name}", (string) $childId);
+        json_response(['data' => $result]);
+
+    case $method === 'GET' && $path === '/api/movements':
+        $currentUser = require_permission($pdo, 'movements.manage');
+        json_response(['data' => list_location_movements($pdo, $currentUser, $_GET)]);
+
+    case $method === 'POST' && preg_match('#^/api/movements/([0-9]+)/undo$#', $path, $matches):
+        // Admin: alle Schritte der letzten Wochen; Betreuer: nur eigene, frische Schritte (Prüfung in undo_movement)
+        $currentUser = require_permission($pdo, 'articles.assign');
+        $result = undo_movement($pdo, $currentUser, (int) $matches[1]);
+        $label = article_display_name($pdo, $result['articleId']);
+        audit($pdo, 'article.undo', $result['eventType'] === 'create' ? "Neuanlage rückgängig gemacht: {$label}" : "Ausgabe/Rückgabe rückgängig gemacht: {$label}", $result['articleId'], ['Schritt' => $result['undone']]);
         json_response(['data' => $result]);
 
     case $method === 'GET' && $path === '/api/todos':

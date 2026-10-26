@@ -15,7 +15,8 @@ export type Permission =
   | 'users.manage'
   | 'data.backup'
   | 'audit.view'
-  | 'todos.manage';
+  | 'todos.manage'
+  | 'movements.manage';
 
 export const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',

@@ -17,6 +17,7 @@ const InventarPage = lazy(() => import('@pages/Inventar'));
 const BenutzerPage = lazy(() => import('@pages/Benutzer'));
 const ProtokollPage = lazy(() => import('@pages/Protokoll'));
 const TodosPage = lazy(() => import('@pages/Todos'));
+const AusgabePage = lazy(() => import('@pages/Ausgabe'));
 
 function AppShell({
   children,
@@ -56,6 +57,9 @@ function AppShell({
         </button>
         <nav className={menuOpen ? 'is-open' : ''}>
           <Link to="/" onClick={() => setMenuOpen(false)}>Dashboard</Link>
+          {user.permissions.includes('articles.assign') && (
+            <Link to="/ausgabe" onClick={() => setMenuOpen(false)}>Ausgabe</Link>
+          )}
           <Link to="/scan" onClick={() => setMenuOpen(false)}>Scannen</Link>
           <Link to="/inventar" onClick={() => setMenuOpen(false)}>Inventar</Link>
 
@@ -223,6 +227,10 @@ export default function App() {
       <Route
         path="/benutzer"
         element={renderProtectedRoute(<BenutzerPage />, 'users.manage')}
+      />
+      <Route
+        path="/ausgabe"
+        element={renderProtectedRoute(<AusgabePage />, 'articles.assign')}
       />
       <Route
         path="/todos"
