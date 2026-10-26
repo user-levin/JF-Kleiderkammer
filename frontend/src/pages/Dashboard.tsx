@@ -23,6 +23,15 @@ type Article = {
   warning: null | { type: 'pruefung' | 'ablauf'; date: string; windowDays: number };
 };
 
+type CategoryStat = {
+  category: string;
+  total: number;
+  children: number;
+  storage: number;
+  childArticles: Article[];
+  storageArticles: Article[];
+};
+
 type HelmetAlert = {
   article: Article;
   reason: string;
@@ -89,31 +98,50 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
   // Aggregiere nach Kategorien (nicht nach Größe)
   const categoryStats = useMemo(() => {
-    const map = new Map<string, { category: string; total: number; children: number; storage: number }>();
+    const map = new Map<string, CategoryStat>();
     const presetLabels = CATEGORY_PRESETS.map((preset) => preset.label);
+    const emptyStat = (category: string): CategoryStat => ({
+      category,
+      total: 0,
+      children: 0,
+      storage: 0,
+      childArticles: [],
+      storageArticles: []
+    });
 
     for (const label of presetLabels) {
-      map.set(label, { category: label, total: 0, children: 0, storage: 0 });
+      map.set(label, emptyStat(label));
     }
 
     for (const article of articles) {
       const category = article.category || 'Unbekannt';
       if (!map.has(category)) {
-        map.set(category, { category, total: 0, children: 0, storage: 0 });
+        map.set(category, emptyStat(category));
       }
       const current = map.get(category)!;
       current.total += 1;
       if (article.location.type === 'kind') {
         current.children += 1;
+        current.childArticles.push(article);
       } else {
         current.storage += 1;
+        current.storageArticles.push(article);
       }
+    }
+
+    for (const stat of map.values()) {
+      stat.childArticles.sort(compareArticleIds);
+      stat.storageArticles.sort(compareArticleIds);
     }
 
     return Array.from(map.values()).sort((a, b) =>
       a.category.localeCompare(b.category, 'de-DE')
     );
   }, [articles]);
+
+  const handleExportCsv = () => {
+    downloadCsv(`bestand_${new Date().toISOString().slice(0, 10)}.csv`, buildInventoryCsv(articles));
+  };
 
   const shortageItems = useMemo(() => {
     return categoryStats
@@ -214,6 +242,11 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             <h3>Bestandsverteilung</h3>
             <p className="muted">Horizontaler Vergleich nach Kategorie (Lager vs. Kinder)</p>
           </div>
+          <div className="card-actions">
+            <button className="ghost-button" onClick={handleExportCsv} disabled={articles.length === 0}>
+              Export CSV
+            </button>
+          </div>
         </div>
         {categoryStats.length === 0 ? (
           <p className="muted">Noch keine Artikel vorhanden.</p>
@@ -267,6 +300,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                     <span className="legend-item legend-children">Kind: {cat.children}</span>
                     <span className="legend-item legend-storage">Lager: {cat.storage}</span>
                   </div>
+                  {total > 0 && (
+                    <details className="inventory-id-details">
+                      <summary>Inventarnummern</summary>
+                      <InventoryIdList title="Bei Kindern" articles={cat.childArticles} showChild />
+                      <InventoryIdList title="Im Lager" articles={cat.storageArticles} />
+                    </details>
+                  )}
                 </article>
               );
             })}
@@ -333,13 +373,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   <li>Ablaufdatum: {formatDate(alert.article.expiryDate)}</li>
                 </ul>
                 <div className="helmet-actions">
-                  <button onClick={() => handleHelmetCheck(alert.article.id)} disabled={helmetCheckMutation.isLoading}>
+                  <button onClick={() => handleHelmetCheck(alert.article.id)} disabled={helmetCheckMutation.isPending}>
                     Prüfung abschließen
                   </button>
                   <button
                     className="ghost-button danger"
                     onClick={() => handleRetireArticle(alert.article.id)}
-                    disabled={retireArticleMutation.isLoading}
+                    disabled={retireArticleMutation.isPending}
                   >
                     Aussondern
                   </button>
@@ -356,6 +396,94 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       </section>
     </div>
   );
+}
+
+function InventoryIdList({
+  title,
+  articles,
+  showChild = false
+}: {
+  title: string;
+  articles: Article[];
+  showChild?: boolean;
+}) {
+  if (articles.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="inventory-id-group">
+      <p className="inventory-id-title">
+        {title} ({articles.length})
+      </p>
+      <ul className="inventory-id-list">
+        {articles.map((article) => (
+          <li key={article.id}>
+            <span className="helmet-article-id">#{article.id}</span>
+            <span
+              className="muted"
+              title={showChild && article.location.name ? article.location.name : undefined}
+            >
+              {article.size ?? 'One Size'}
+              {showChild && article.location.name ? ` · ${article.location.name}` : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function compareArticleIds(a: Article, b: Article): number {
+  return a.id.localeCompare(b.id, 'de-DE', { numeric: true });
+}
+
+const CSV_COLUMNS: Array<{ header: string; value: (article: Article) => string | null }> = [
+  { header: 'Inventarnummer', value: (a) => a.id },
+  { header: 'Kategorie', value: (a) => a.category },
+  { header: 'Bezeichnung', value: (a) => a.label },
+  { header: 'Größe', value: (a) => a.size },
+  { header: 'Status', value: (a) => a.status },
+  { header: 'Ort', value: (a) => (a.location.type === 'kind' ? 'Kind' : 'Lager') },
+  { header: 'Kind / Lagerort', value: (a) => a.location.name },
+  { header: 'Seit', value: (a) => a.assignedAt?.slice(0, 10) ?? null },
+  { header: 'Ablaufdatum', value: (a) => a.expiryDate },
+  { header: 'Letzte Helmprüfung', value: (a) => a.helmetLastCheck },
+  { header: 'Nächste Helmprüfung', value: (a) => a.helmetNextCheck },
+  { header: 'Notiz', value: (a) => a.notes }
+];
+
+function buildInventoryCsv(articles: Article[]): string {
+  // Semikolon als Trennzeichen, damit Excel mit deutscher Ländereinstellung die Spalten erkennt
+  const escape = (value: string | null) => {
+    let text = value ?? '';
+    // Verhindert, dass Excel Notizen wie "=..." als Formel ausführt
+    if (/^[=+@\t]/.test(text)) {
+      text = `'${text}`;
+    }
+    return /[";\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const sorted = [...articles].sort(
+    (a, b) => (a.category || '').localeCompare(b.category || '', 'de-DE') || compareArticleIds(a, b)
+  );
+  const lines = [
+    CSV_COLUMNS.map((column) => column.header).join(';'),
+    ...sorted.map((article) => CSV_COLUMNS.map((column) => escape(column.value(article))).join(';'))
+  ];
+  return lines.join('\r\n');
+}
+
+function downloadCsv(filename: string, content: string) {
+  // BOM, damit Excel Umlaute als UTF-8 liest
+  const blob = new Blob(['﻿' + content], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function parseDate(value?: string | null): Date | null {

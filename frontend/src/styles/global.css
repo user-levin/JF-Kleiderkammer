@@ -262,6 +262,40 @@ label { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.75
 .legend-storage::before {
   background: #60a5fa;
 }
+.inventory-id-details {
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+  font-size: 0.85rem;
+}
+.inventory-id-details summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.inventory-id-details summary:hover { color: var(--accent-soft); }
+.inventory-id-group { margin-top: 0.5rem; }
+.inventory-id-title {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+.inventory-id-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.2rem;
+}
+.inventory-id-list li {
+  display: grid;
+  min-width: 0;
+}
+.inventory-id-list li .muted {
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .demand-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .demand-card {
   border: 1px solid var(--border);
