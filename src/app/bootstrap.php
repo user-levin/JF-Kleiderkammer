@@ -105,6 +105,8 @@ function ensure_schema(PDO $pdo): void
         "ALTER TABLE bewegung ADD COLUMN IF NOT EXISTS event_type TEXT",
         "ALTER TABLE bewegung ADD COLUMN IF NOT EXISTS old_value JSONB",
         "ALTER TABLE bewegung ADD COLUMN IF NOT EXISTS new_value JSONB",
+        "ALTER TABLE bewegung DROP CONSTRAINT IF EXISTS ck_bewegung_event_type",
+        "ALTER TABLE bewegung ADD CONSTRAINT ck_bewegung_event_type CHECK (event_type IS NULL OR event_type IN ('ausgabe','ruecknahme','transfer','groesse_change','notiz_change','pruefung_update','ablauf_update','create','update','delete'))",
         "ALTER TABLE artikel DROP CONSTRAINT IF EXISTS ck_artikel_id_numeric",
         "ALTER TABLE artikel ADD CONSTRAINT ck_artikel_id_numeric CHECK (id ~ '^[0-9]{9}$') NOT VALID",
     ];

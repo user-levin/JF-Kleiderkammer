@@ -93,7 +93,8 @@ CREATE TABLE bewegung (
             'pruefung_update',
             'ablauf_update',
             'create',
-            'update'
+            'update',
+            'delete'
         )
     )
 );

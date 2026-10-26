@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@api/client';
 import ArticleModal from '@components/ArticleModal';
@@ -51,6 +51,18 @@ export default function Inventar() {
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const parsedChildFilter = childFilter && !Number.isNaN(Number(childFilter)) ? Number(childFilter) : null;
+  const validChildFilter = parsedChildFilter !== null && Boolean(childrenQuery.data?.some((child) => child.id === parsedChildFilter));
+  const effectiveChildFilter = validChildFilter ? parsedChildFilter : null;
+
+  useEffect(() => {
+    if (!childrenQuery.isSuccess || parsedChildFilter === null || validChildFilter) {
+      return;
+    }
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('child');
+    setSearchParams(nextParams, { replace: true });
+  }, [childrenQuery.isSuccess, parsedChildFilter, validChildFilter, searchParams, setSearchParams]);
 
   const handleChildFilterChange = (value: string) => {
     const nextParams = new URLSearchParams(searchParams);
@@ -84,8 +96,8 @@ export default function Inventar() {
             return false;
           }
         }
-        if (parsedChildFilter !== null) {
-          if (article.location.type !== 'kind' || article.location.kindId !== parsedChildFilter) {
+        if (effectiveChildFilter !== null) {
+          if (article.location.type !== 'kind' || article.location.kindId !== effectiveChildFilter) {
             return false;
           }
         }
@@ -99,14 +111,14 @@ export default function Inventar() {
         return haystack.includes(normalizedSearch);
       })
       .sort((a, b) => a.id.localeCompare(b.id, 'de-DE'));
-  }, [articles, statusFilter, locationFilter, categoryFilter, warningOnly, normalizedSearch, parsedChildFilter]);
+  }, [articles, statusFilter, locationFilter, categoryFilter, warningOnly, normalizedSearch, effectiveChildFilter]);
 
   const activeArticle = useMemo(() => {
     return activeArticleId ? articles.find((candidate) => candidate.id === activeArticleId) ?? null : null;
   }, [articles, activeArticleId]);
 
-  const activeChildFilter = parsedChildFilter !== null && childrenQuery.data
-    ? childrenQuery.data.find((child) => child.id === parsedChildFilter) ?? null
+  const activeChildFilter = effectiveChildFilter !== null && childrenQuery.data
+    ? childrenQuery.data.find((child) => child.id === effectiveChildFilter) ?? null
     : null;
 
   const handleArticleUpdated = (updatedArticle: Article) => {

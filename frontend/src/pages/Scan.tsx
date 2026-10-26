@@ -103,6 +103,7 @@ export default function Scan() {
   const [lookupMessage, setLookupMessage] = useState<string | null>(null);
   const [creationForm, setCreationForm] = useState<CreationFormState>(() => ({ ...DEFAULT_CREATION_STATE }));
   const [showCamera, setShowCamera] = useState(true);
+  const [lastUsedChildId, setLastUsedChildId] = useState<number | null>(null);
   const cameraLastResultRef = useRef<{ value: string; timestamp: number }>({ value: '', timestamp: 0 });
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
@@ -112,6 +113,17 @@ export default function Scan() {
   if (!readerRef.current) {
     readerRef.current = new BrowserMultiFormatReader(undefined, SCAN_SPEED_OPTIONS);
   }
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('lastUsedChildId');
+      if (stored) {
+        setLastUsedChildId(Number(stored));
+      }
+    } catch {
+      // localStorage nicht verfügbar, ignorieren
+    }
+  }, []);
 
   useEffect(() => {
     manualInputRef.current = manualInput;
@@ -149,6 +161,20 @@ export default function Scan() {
     staleTime: 60_000
   });
 
+  const sortedChildren = useMemo(() => {
+    if (!childrenQuery.data) return [];
+    
+    const lastUsedChild = lastUsedChildId 
+      ? childrenQuery.data.find(c => c.id === lastUsedChildId)
+      : null;
+    
+    const otherChildren = childrenQuery.data
+      .filter(c => c.id !== lastUsedChildId)
+      .sort((a, b) => a.firstName.localeCompare(b.firstName, 'de'));
+    
+    return lastUsedChild ? [lastUsedChild, ...otherChildren] : otherChildren;
+  }, [childrenQuery.data, lastUsedChildId]);
+
   const lookupMutation = useMutation({
     mutationFn: async (articleId: string) => {
       const res = await api.get<{ data: Article }>(`/api/articles/${articleId}`);
@@ -182,7 +208,7 @@ export default function Scan() {
     },
     onSuccess: (article) => {
       setActiveArticle(article);
-      setIsModalOpen(true);
+      setIsModalOpen(false);
       setMissingId(null);
       setLookupMessage('Artikel wurde angelegt.');
       setManualInput(article.id);
@@ -598,14 +624,24 @@ export default function Scan() {
         Kind auswählen
         <select
           value={creationForm.kindId}
-          onChange={(event) =>
-            setCreationForm((prev) => ({ ...prev, kindId: event.target.value }))
-          }
+          onChange={(event) => {
+            const childId = event.target.value;
+            const numId = childId ? Number(childId) : null;
+            if (numId) {
+              try {
+                localStorage.setItem('lastUsedChildId', String(numId));
+              } catch {
+                // localStorage nicht verfügbar
+              }
+              setLastUsedChildId(numId);
+            }
+            setCreationForm((prev) => ({ ...prev, kindId: childId }))
+          }}
         >
           <option value="">Bitte auswählen</option>
-          {childrenQuery.data?.map((child) => (
+          {sortedChildren.map((child, idx) => (
             <option key={child.id} value={child.id}>
-              {composeChildName(child)}
+              {composeChildName(child)}{idx === 0 && lastUsedChildId === child.id ? ' (zuletzt verwendet)' : ''}
             </option>
           ))}
         </select>

@@ -1,0 +1,21 @@
+# Abhängigkeiten und Build-Caches
+node_modules/
+frontend/.vite/
+
+# macOS
+.DS_Store
+
+# Laufzeitdaten der Container (pgAdmin-Sessions, Einstellungen)
+docker-data/
+pgadmin4.db.backup
+
+# Datenbank-Dumps enthalten personenbezogene Daten – nie committen
+db/*.sql
+*.dump
+
+# Alte Build-Kopie (die UI wird per Volume aus frontend/dist eingebunden)
+src/public/ui/dist/
+
+# Nur für die lokale Entwicklung auf dem Mac
+docker-compose.local.yml
+frontend/vite.preview-local.config.ts

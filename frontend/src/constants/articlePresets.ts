@@ -1,5 +1,5 @@
 export type CategoryPreset = {
-  key: 'helm' | 'handschuhe' | 'jacke' | 'hose' | 'koppel';
+  key: 'helm' | 'handschuhe' | 'jacke' | 'hose' | 'koppel' | 'schuhe' | 't-shirt';
   label: string;
   sizeOptions?: string[];
   allowCustomSize?: boolean;
@@ -8,7 +8,7 @@ export type CategoryPreset = {
 
 export const CUSTOM_CATEGORY_KEY = '__custom';
 
-const KOPPEL_SIZES = Array.from({ length: 9 }, (_, index) => String(80 + index * 5));
+const KOPPEL_SIZES = Array.from({ length: 10 }, (_, index) => String(70 + index * 5));
 
 export const CATEGORY_PRESETS: CategoryPreset[] = [
   {
@@ -27,6 +27,10 @@ export const CATEGORY_PRESETS: CategoryPreset[] = [
     label: 'Jacke'
   },
   {
+    key: 't-shirt',
+    label: 'T-Shirt'
+  },
+  {
     key: 'hose',
     label: 'Hose'
   },
@@ -35,6 +39,10 @@ export const CATEGORY_PRESETS: CategoryPreset[] = [
     label: 'Koppel',
     sizeOptions: KOPPEL_SIZES,
     allowCustomSize: true
+  },
+  {
+    key: 'schuhe',
+    label: 'Schuhe'
   }
 ];
 

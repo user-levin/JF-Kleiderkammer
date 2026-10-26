@@ -57,6 +57,13 @@ switch (true) {
     case $method === 'GET' && $path === '/api/users':
         json_response(['data' => list_users($pdo)]);
 
+    case $method === 'GET' && $path === '/api/data/export':
+        export_data($pdo);
+
+    case $method === 'POST' && $path === '/api/data/import':
+        $body = read_json_body();
+        json_response(['data' => import_data($pdo, $body)]);
+
     case $method === 'GET' && preg_match('#^/api/articles/([0-9]+)$#', $path, $matches):
         $articleId = sanitize_article_id($matches[1]);
         json_response(['data' => fetch_article($pdo, $articleId)]);
@@ -395,6 +402,43 @@ function create_article(PDO $pdo, array $payload): array
             ? get_kind_ort_id($pdo, $kindId)
             : get_lager_ort_id($pdo);
 
+        $existingStatement = $pdo->prepare('SELECT id, aktiv, aktueller_ort_id FROM artikel WHERE id = :id FOR UPDATE');
+        $existingStatement->execute([':id' => $id]);
+        $existingArticle = $existingStatement->fetch();
+
+        if ($existingArticle && normalize_bool($existingArticle['aktiv'])) {
+            rollback_if_needed($pdo);
+            json_error('Artikelnummer ist bereits vergeben.', 409);
+        }
+
+        if ($existingArticle && !normalize_bool($existingArticle['aktiv'])) {
+            $update = $pdo->prepare('UPDATE artikel SET kategorie = :kategorie, bezeichnung = :bezeichnung, groesse = :groesse, notizen = :notizen, ablaufdatum = :ablaufdatum, helm_herstellungsdatum = :helm_herstellungsdatum, aktueller_ort_id = :ort_id, aktiv = true, updated_at = NOW() WHERE id = :id');
+            $update->execute([
+                ':id' => $id,
+                ':kategorie' => $category,
+                ':bezeichnung' => $label,
+                ':groesse' => $size,
+                ':notizen' => $rawNotes ? append_note_entry($rawNotes, null) : null,
+                ':ablaufdatum' => $expiryDate,
+                ':helm_herstellungsdatum' => $helmetManufacturedAt,
+                ':ort_id' => $targetOrtId,
+            ]);
+
+            $movement = $pdo->prepare('INSERT INTO bewegung (artikel_id, von_ort_id, nach_ort_id, aktion, event_type, new_value) VALUES (:artikel_id, :von_ort_id, :nach_ort_id, :aktion, :event_type, :new_value)');
+            $movement->execute([
+                ':artikel_id' => $id,
+                ':von_ort_id' => $existingArticle['aktueller_ort_id'] !== null ? (int) $existingArticle['aktueller_ort_id'] : null,
+                ':nach_ort_id' => $targetOrtId,
+                ':aktion' => 'create',
+                ':event_type' => 'create',
+                ':new_value' => json_encode(['kategorie' => $category, 'groesse' => $size, 'reaktiviert' => true], JSON_UNESCAPED_UNICODE),
+            ]);
+
+            $pdo->commit();
+
+            return fetch_article($pdo, $id);
+        }
+
         $insert = $pdo->prepare('INSERT INTO artikel (id, kategorie, bezeichnung, groesse, notizen, ablaufdatum, helm_herstellungsdatum, aktueller_ort_id) VALUES (:id, :kategorie, :bezeichnung, :groesse, :notizen, :ablaufdatum, :helm_herstellungsdatum, :ort_id)');
         $insert->execute([
             ':id' => $id,
@@ -705,12 +749,34 @@ function delete_child(PDO $pdo, int $childId): array
         $ort = $ortStatement->fetch();
 
         if ($ort) {
+            $lagerOrtId = get_lager_ort_id($pdo);
+
             $count = $pdo->prepare('SELECT COUNT(*) FROM artikel WHERE aktueller_ort_id = :ort_id AND aktiv = true');
             $count->execute([':ort_id' => $ort['id']]);
             if ((int) $count->fetchColumn() > 0) {
                 rollback_if_needed($pdo);
                 json_error('Dem Kind sind noch Artikel zugeordnet.', 409);
             }
+
+            // Inaktive Artikel können noch auf den Kind-Ort zeigen und das Löschen blockieren.
+            $pdo->prepare('UPDATE artikel SET aktueller_ort_id = :lager_id, updated_at = NOW() WHERE aktueller_ort_id = :ort_id')
+                ->execute([
+                    ':lager_id' => $lagerOrtId,
+                    ':ort_id' => $ort['id'],
+                ]);
+
+            // Historische Bewegungen referenzieren Ort-IDs per FK und müssen vor dem Löschen umgebogen werden.
+            $pdo->prepare('UPDATE bewegung SET von_ort_id = :lager_id WHERE von_ort_id = :ort_id')
+                ->execute([
+                    ':lager_id' => $lagerOrtId,
+                    ':ort_id' => $ort['id'],
+                ]);
+
+            $pdo->prepare('UPDATE bewegung SET nach_ort_id = :lager_id WHERE nach_ort_id = :ort_id')
+                ->execute([
+                    ':lager_id' => $lagerOrtId,
+                    ':ort_id' => $ort['id'],
+                ]);
         }
 
         $pdo->prepare('DELETE FROM kind WHERE id = :id')->execute([':id' => $childId]);
@@ -797,9 +863,277 @@ function create_user(PDO $pdo, array $payload): array
     }
 }
 
+function export_data(PDO $pdo): void
+{
+    $backup = build_backup_payload($pdo);
+    $filename = sprintf('kleiderkammer-backup-%s.json', (new DateTimeImmutable())->format('Ymd-His'));
+
+    header('Content-Type: application/json; charset=utf-8');
+    header(sprintf('Content-Disposition: attachment; filename="%s"', $filename));
+
+    echo json_encode($backup, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function import_data(PDO $pdo, array $payload): array
+{
+    $backup = $payload['backup'] ?? $payload;
+
+    if (!is_array($backup)) {
+        json_error('Import-Datei konnte nicht verarbeitet werden.', 422);
+    }
+
+    $format = (string) ($backup['format'] ?? '');
+    $version = (int) ($backup['version'] ?? 0);
+    $data = $backup['data'] ?? null;
+
+    if ($format !== 'kleiderkammer-backup' || $version !== 1 || !is_array($data)) {
+        json_error('Ungültiges Backup-Format.', 422);
+    }
+
+    $users = is_array($data['users'] ?? null) ? $data['users'] : null;
+    $children = is_array($data['children'] ?? null) ? $data['children'] : null;
+    $locations = is_array($data['locations'] ?? null) ? $data['locations'] : null;
+    $articles = is_array($data['articles'] ?? null) ? $data['articles'] : null;
+    $movements = is_array($data['movements'] ?? null) ? $data['movements'] : null;
+
+    if ($users === null || $children === null || $locations === null || $articles === null || $movements === null) {
+        json_error('Backup enthält nicht alle benötigten Datenbereiche.', 422);
+    }
+
+    $hasLager = false;
+    foreach ($locations as $location) {
+        if (is_array($location) && ($location['typ'] ?? null) === 'lager') {
+            $hasLager = true;
+            break;
+        }
+    }
+
+    if (!$hasLager) {
+        json_error('Backup enthält keinen Lager-Ort.', 422);
+    }
+
+    $pdo->beginTransaction();
+
+    try {
+        $pdo->exec('TRUNCATE TABLE bewegung, artikel, ort, kind, app_user RESTART IDENTITY CASCADE');
+
+        $insertUser = $pdo->prepare('INSERT INTO app_user (id, email, password_hash, role, active, created_at) VALUES (:id, :email, :password_hash, :role, :active, :created_at)');
+        foreach ($users as $user) {
+            if (!is_array($user)) {
+                throw new RuntimeException('Ungültiger Benutzer-Datensatz im Backup.');
+            }
+
+            $insertUser->execute([
+                ':id' => (int) ($user['id'] ?? 0),
+                ':email' => (string) ($user['email'] ?? ''),
+                ':password_hash' => (string) ($user['password_hash'] ?? ''),
+                ':role' => (string) ($user['role'] ?? 'leser'),
+                ':active' => normalize_bool($user['active'] ?? true),
+                ':created_at' => (string) ($user['created_at'] ?? (new DateTimeImmutable())->format(DateTimeInterface::ATOM)),
+            ]);
+        }
+
+        $insertChild = $pdo->prepare('INSERT INTO kind (id, vorname, nachname, status, created_at) VALUES (:id, :vorname, :nachname, :status, :created_at)');
+        foreach ($children as $child) {
+            if (!is_array($child)) {
+                throw new RuntimeException('Ungültiger Kind-Datensatz im Backup.');
+            }
+
+            $insertChild->execute([
+                ':id' => (int) ($child['id'] ?? 0),
+                ':vorname' => (string) ($child['vorname'] ?? ''),
+                ':nachname' => (string) ($child['nachname'] ?? ''),
+                ':status' => (string) ($child['status'] ?? 'aktiv'),
+                ':created_at' => (string) ($child['created_at'] ?? (new DateTimeImmutable())->format(DateTimeInterface::ATOM)),
+            ]);
+        }
+
+        $insertLocation = $pdo->prepare('INSERT INTO ort (id, typ, name, kind_id) VALUES (:id, :typ, :name, :kind_id)');
+        foreach ($locations as $location) {
+            if (!is_array($location)) {
+                throw new RuntimeException('Ungültiger Ort-Datensatz im Backup.');
+            }
+
+            $kindId = $location['kind_id'] ?? null;
+            $insertLocation->execute([
+                ':id' => (int) ($location['id'] ?? 0),
+                ':typ' => (string) ($location['typ'] ?? ''),
+                ':name' => $location['name'] ?? null,
+                ':kind_id' => $kindId !== null ? (int) $kindId : null,
+            ]);
+        }
+
+        $insertArticle = $pdo->prepare('INSERT INTO artikel (id, kategorie, bezeichnung, groesse, zustand, notizen, kaufdatum, ablaufdatum, helm_letzte_pruefung, helm_naechste_pruefung, helm_herstellungsdatum, aktiv, aktueller_ort_id, angelegt_am, updated_at) VALUES (:id, :kategorie, :bezeichnung, :groesse, :zustand, :notizen, :kaufdatum, :ablaufdatum, :helm_letzte_pruefung, :helm_naechste_pruefung, :helm_herstellungsdatum, :aktiv, :aktueller_ort_id, :angelegt_am, :updated_at)');
+        foreach ($articles as $article) {
+            if (!is_array($article)) {
+                throw new RuntimeException('Ungültiger Artikel-Datensatz im Backup.');
+            }
+
+            $insertArticle->execute([
+                ':id' => sanitize_article_id((string) ($article['id'] ?? '')),
+                ':kategorie' => (string) ($article['kategorie'] ?? ''),
+                ':bezeichnung' => (string) ($article['bezeichnung'] ?? ''),
+                ':groesse' => $article['groesse'] ?? null,
+                ':zustand' => $article['zustand'] ?? null,
+                ':notizen' => $article['notizen'] ?? null,
+                ':kaufdatum' => $article['kaufdatum'] ?? null,
+                ':ablaufdatum' => $article['ablaufdatum'] ?? null,
+                ':helm_letzte_pruefung' => $article['helm_letzte_pruefung'] ?? null,
+                ':helm_naechste_pruefung' => $article['helm_naechste_pruefung'] ?? null,
+                ':helm_herstellungsdatum' => $article['helm_herstellungsdatum'] ?? null,
+                ':aktiv' => normalize_bool($article['aktiv'] ?? true),
+                ':aktueller_ort_id' => (int) ($article['aktueller_ort_id'] ?? 0),
+                ':angelegt_am' => (string) ($article['angelegt_am'] ?? (new DateTimeImmutable())->format(DateTimeInterface::ATOM)),
+                ':updated_at' => (string) ($article['updated_at'] ?? (new DateTimeImmutable())->format(DateTimeInterface::ATOM)),
+            ]);
+        }
+
+        $insertMovement = $pdo->prepare('INSERT INTO bewegung (id, artikel_id, von_ort_id, nach_ort_id, zeitpunkt, user_id, aktion, event_type, old_value, new_value, kommentar, created_at) VALUES (:id, :artikel_id, :von_ort_id, :nach_ort_id, :zeitpunkt, :user_id, :aktion, :event_type, CAST(:old_value AS jsonb), CAST(:new_value AS jsonb), :kommentar, :created_at)');
+        foreach ($movements as $movement) {
+            if (!is_array($movement)) {
+                throw new RuntimeException('Ungültiger Bewegungs-Datensatz im Backup.');
+            }
+
+            $insertMovement->execute([
+                ':id' => (int) ($movement['id'] ?? 0),
+                ':artikel_id' => sanitize_article_id((string) ($movement['artikel_id'] ?? '')),
+                ':von_ort_id' => isset($movement['von_ort_id']) ? (int) $movement['von_ort_id'] : null,
+                ':nach_ort_id' => isset($movement['nach_ort_id']) ? (int) $movement['nach_ort_id'] : null,
+                ':zeitpunkt' => (string) ($movement['zeitpunkt'] ?? (new DateTimeImmutable())->format(DateTimeInterface::ATOM)),
+                ':user_id' => isset($movement['user_id']) ? (int) $movement['user_id'] : null,
+                ':aktion' => (string) ($movement['aktion'] ?? ''),
+                ':event_type' => $movement['event_type'] ?? null,
+                ':old_value' => encode_import_json_field($movement['old_value'] ?? null),
+                ':new_value' => encode_import_json_field($movement['new_value'] ?? null),
+                ':kommentar' => $movement['kommentar'] ?? null,
+                ':created_at' => (string) ($movement['created_at'] ?? (new DateTimeImmutable())->format(DateTimeInterface::ATOM)),
+            ]);
+        }
+
+        reset_serial_sequence($pdo, 'app_user', 'id');
+        reset_serial_sequence($pdo, 'kind', 'id');
+        reset_serial_sequence($pdo, 'ort', 'id');
+        reset_serial_sequence($pdo, 'bewegung', 'id');
+
+        $pdo->commit();
+    } catch (Throwable $throwable) {
+        rollback_if_needed($pdo);
+
+        if ($throwable instanceof RuntimeException) {
+            json_error($throwable->getMessage(), 422);
+        }
+
+        throw $throwable;
+    }
+
+    return [
+        'imported' => true,
+        'counts' => [
+            'users' => count($users),
+            'children' => count($children),
+            'locations' => count($locations),
+            'articles' => count($articles),
+            'movements' => count($movements),
+        ],
+    ];
+}
+
+function build_backup_payload(PDO $pdo): array
+{
+    return [
+        'app' => 'Digitale Kleiderkammer',
+        'format' => 'kleiderkammer-backup',
+        'version' => 1,
+        'exportedAt' => (new DateTimeImmutable())->format(DateTimeInterface::ATOM),
+        'data' => [
+            'users' => fetch_backup_users($pdo),
+            'children' => fetch_backup_children($pdo),
+            'locations' => fetch_backup_locations($pdo),
+            'articles' => fetch_backup_articles($pdo),
+            'movements' => fetch_backup_movements($pdo),
+        ],
+    ];
+}
+
+function fetch_backup_users(PDO $pdo): array
+{
+    $statement = $pdo->query('SELECT id, email, password_hash, role, active, created_at FROM app_user ORDER BY id');
+
+    return array_map(static fn(array $row) => [
+        'id' => (int) $row['id'],
+        'email' => $row['email'],
+        'password_hash' => $row['password_hash'],
+        'role' => $row['role'],
+        'active' => normalize_bool($row['active']),
+        'created_at' => $row['created_at'],
+    ], $statement->fetchAll());
+}
+
+function fetch_backup_children(PDO $pdo): array
+{
+    $statement = $pdo->query('SELECT id, vorname, nachname, status, created_at FROM kind ORDER BY id');
+    return $statement->fetchAll();
+}
+
+function fetch_backup_locations(PDO $pdo): array
+{
+    $statement = $pdo->query('SELECT id, typ, name, kind_id FROM ort ORDER BY id');
+
+    return array_map(static fn(array $row) => [
+        'id' => (int) $row['id'],
+        'typ' => $row['typ'],
+        'name' => $row['name'],
+        'kind_id' => $row['kind_id'] !== null ? (int) $row['kind_id'] : null,
+    ], $statement->fetchAll());
+}
+
+function fetch_backup_articles(PDO $pdo): array
+{
+    $statement = $pdo->query('SELECT id, kategorie, bezeichnung, groesse, zustand, notizen, kaufdatum, ablaufdatum, helm_letzte_pruefung, helm_naechste_pruefung, helm_herstellungsdatum, aktiv, aktueller_ort_id, angelegt_am, updated_at FROM artikel ORDER BY id');
+
+    return array_map(static fn(array $row) => [
+        'id' => $row['id'],
+        'kategorie' => $row['kategorie'],
+        'bezeichnung' => $row['bezeichnung'],
+        'groesse' => $row['groesse'],
+        'zustand' => $row['zustand'],
+        'notizen' => $row['notizen'],
+        'kaufdatum' => $row['kaufdatum'],
+        'ablaufdatum' => $row['ablaufdatum'],
+        'helm_letzte_pruefung' => $row['helm_letzte_pruefung'],
+        'helm_naechste_pruefung' => $row['helm_naechste_pruefung'],
+        'helm_herstellungsdatum' => $row['helm_herstellungsdatum'],
+        'aktiv' => normalize_bool($row['aktiv']),
+        'aktueller_ort_id' => (int) $row['aktueller_ort_id'],
+        'angelegt_am' => $row['angelegt_am'],
+        'updated_at' => $row['updated_at'],
+    ], $statement->fetchAll());
+}
+
+function fetch_backup_movements(PDO $pdo): array
+{
+    $statement = $pdo->query('SELECT id, artikel_id, von_ort_id, nach_ort_id, zeitpunkt, user_id, aktion, event_type, old_value, new_value, kommentar, created_at FROM bewegung ORDER BY id');
+
+    return array_map(static fn(array $row) => [
+        'id' => (int) $row['id'],
+        'artikel_id' => $row['artikel_id'],
+        'von_ort_id' => $row['von_ort_id'] !== null ? (int) $row['von_ort_id'] : null,
+        'nach_ort_id' => $row['nach_ort_id'] !== null ? (int) $row['nach_ort_id'] : null,
+        'zeitpunkt' => $row['zeitpunkt'],
+        'user_id' => $row['user_id'] !== null ? (int) $row['user_id'] : null,
+        'aktion' => $row['aktion'],
+        'event_type' => $row['event_type'],
+        'old_value' => decode_backup_json_field($row['old_value'] ?? null),
+        'new_value' => decode_backup_json_field($row['new_value'] ?? null),
+        'kommentar' => $row['kommentar'],
+        'created_at' => $row['created_at'],
+    ], $statement->fetchAll());
+}
+
 function fetch_article(PDO $pdo, string $articleId): array
 {
-    $statement = $pdo->prepare('SELECT a.id, a.kategorie, a.bezeichnung, a.groesse, a.notizen, a.ablaufdatum, a.helm_naechste_pruefung, a.helm_letzte_pruefung, a.helm_herstellungsdatum, a.updated_at, o.typ AS ort_typ, o.name AS ort_name, o.kind_id, k.vorname, k.nachname, mv.zeitpunkt AS letzte_bewegung FROM artikel a JOIN ort o ON o.id = a.aktueller_ort_id LEFT JOIN kind k ON k.id = o.kind_id LEFT JOIN LATERAL (SELECT zeitpunkt FROM bewegung WHERE artikel_id = a.id ORDER BY zeitpunkt DESC LIMIT 1) mv ON true WHERE a.id = :id');
+    $statement = $pdo->prepare('SELECT a.id, a.kategorie, a.bezeichnung, a.groesse, a.notizen, a.ablaufdatum, a.helm_naechste_pruefung, a.helm_letzte_pruefung, a.helm_herstellungsdatum, a.updated_at, o.typ AS ort_typ, o.name AS ort_name, o.kind_id, k.vorname, k.nachname, mv.zeitpunkt AS letzte_bewegung FROM artikel a JOIN ort o ON o.id = a.aktueller_ort_id LEFT JOIN kind k ON k.id = o.kind_id LEFT JOIN LATERAL (SELECT zeitpunkt FROM bewegung WHERE artikel_id = a.id ORDER BY zeitpunkt DESC LIMIT 1) mv ON true WHERE a.id = :id AND a.aktiv = true');
     $statement->execute([':id' => $articleId]);
     $row = $statement->fetch();
 
@@ -1084,4 +1418,64 @@ function rollback_if_needed(PDO $pdo): void
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
+}
+
+function decode_backup_json_field($value)
+{
+    if ($value === null || $value === '') {
+        return null;
+    }
+
+    if (is_array($value)) {
+        return $value;
+    }
+
+    if (!is_string($value)) {
+        return $value;
+    }
+
+    $decoded = json_decode($value, true);
+
+    return json_last_error() === JSON_ERROR_NONE ? $decoded : $value;
+}
+
+function encode_import_json_field($value): ?string
+{
+    if ($value === null || $value === '') {
+        return null;
+    }
+
+    if (is_string($value)) {
+        json_decode($value);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return $value;
+        }
+
+        return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+}
+
+function reset_serial_sequence(PDO $pdo, string $table, string $column): void
+{
+    $allowed = [
+        'app_user.id',
+        'kind.id',
+        'ort.id',
+        'bewegung.id',
+    ];
+
+    if (!in_array(sprintf('%s.%s', $table, $column), $allowed, true)) {
+        throw new RuntimeException('Ungültige Sequenz-Konfiguration.');
+    }
+
+    $pdo->query(sprintf(
+        "SELECT setval(pg_get_serial_sequence('%s', '%s'), COALESCE(MAX(%s), 1), MAX(%s) IS NOT NULL) FROM %s",
+        $table,
+        $column,
+        $column,
+        $column,
+        $table
+    ));
 }

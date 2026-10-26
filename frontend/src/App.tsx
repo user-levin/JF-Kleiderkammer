@@ -4,6 +4,8 @@ import './styles/global.css';
 
 const DashboardPage = lazy(() => import('@pages/Dashboard'));
 const ScanPage = lazy(() => import('@pages/Scan'));
+const PublicSearchPage = lazy(() => import('@pages/PublicSearch'));
+const PublicDashboardPage = lazy(() => import('@pages/PublicDashboard'));
 const PublicScanPage = lazy(() => import('@pages/PublicScan'));
 const ArtikelDetailPage = lazy(() => import('@pages/ArtikelDetail'));
 const KinderPage = lazy(() => import('@pages/Kinder'));
@@ -48,6 +50,40 @@ function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function PublicShell({ children }: { children: React.ReactNode }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <div className="app-shell">
+      <header className="app-header">
+        <Link to="/public" className="brand-lockup" onClick={() => setMenuOpen(false)}>
+          <img src="/ui/logo.png" alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
+        </Link>
+        <button
+          type="button"
+          className="hamburger-button"
+          onClick={() => setMenuOpen((state) => !state)}
+          aria-label={menuOpen ? 'Menü schließen' : 'Menü öffnen'}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+        <nav className={menuOpen ? 'is-open' : ''}>
+          <Link to="/public" onClick={() => setMenuOpen(false)}>Dashboard</Link>
+          <Link to="/public/search" onClick={() => setMenuOpen(false)}>Suche</Link>
+          <Link to="/public/scan" onClick={() => setMenuOpen(false)}>Scannen</Link>
+        </nav>
+      </header>
+      <main>
+        <Suspense fallback={<div className="card"><p className="muted">Ansicht wird geladen ...</p></div>}>
+          {children}
+        </Suspense>
+      </main>
+    </div>
+  );
+}
+
 export default function App() {
   const authDisabled = (import.meta.env.VITE_AUTH_DISABLED ?? 'true') === 'true';
   const [token, setToken] = useState<string | null>(authDisabled ? 'dev-token' : localStorage.getItem('token'));
@@ -78,6 +114,10 @@ export default function App() {
     isAuthenticated ? <AppShell>{component}</AppShell> : <Navigate to="/login" replace />
   );
 
+  const renderPublicRoute = (component: React.ReactNode) => (
+    <PublicShell>{component}</PublicShell>
+  );
+
   return (
     <Routes>
       <Route
@@ -91,21 +131,16 @@ export default function App() {
         )}
       />
       <Route
+        path="/public"
+        element={renderPublicRoute(<PublicDashboardPage />)}
+      />
+      <Route
+        path="/public/search"
+        element={renderPublicRoute(<PublicSearchPage />)}
+      />
+      <Route
         path="/public/scan"
-        element={
-          <div className="app-shell">
-            <header className="app-header">
-              <Link to="/public/scan" className="brand-lockup">
-                <img src="/ui/logo.png" alt="Jugendfeuerwehr Logo" className="brand-mark" loading="lazy" />
-              </Link>
-            </header>
-            <main>
-              <Suspense fallback={<div className="card"><p className="muted">Ansicht wird geladen ...</p></div>}>
-                <PublicScanPage />
-              </Suspense>
-            </main>
-          </div>
-        }
+        element={renderPublicRoute(<PublicScanPage />)}
       />
       <Route
         path="/"
