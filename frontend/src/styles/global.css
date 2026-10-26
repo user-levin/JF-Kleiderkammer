@@ -119,6 +119,12 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
 .brand-title { font-size: 1.1rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
 .brand-subtitle { font-size: 0.85rem; color: var(--accent-soft); letter-spacing: 0.08em; }
 .auth { display: grid; place-items: center; min-height: 100vh; }
+.auth .card { width: min(380px, calc(100vw - 2rem)); display: flex; flex-direction: column; }
+.checkbox-label { flex-direction: row; align-items: center; gap: 0.5rem; cursor: pointer; }
+.checkbox-label input { width: auto; margin: 0; }
+.auth-public-link { margin-top: 0.75rem; text-align: center; color: var(--muted); }
+.auth-public-link:hover { color: var(--accent-soft); }
+.nav-logout { font-size: 0.95rem; padding: 0.35rem 0.75rem; }
 label { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.75rem; }
 .error { color: #fca5a5; }
 .muted { color: var(--muted); }
@@ -139,7 +145,8 @@ label { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.75
     padding: 0.75rem;
   }
   .app-header nav.is-open { display: flex; }
-  .app-header nav a { width: 100%; }
+  .app-header nav a,
+  .app-header nav .nav-logout { width: 100%; text-align: left; }
   .brand-mark { width: 96px; height: 96px; }
   main { padding: 1rem; }
 }

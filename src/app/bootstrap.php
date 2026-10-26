@@ -115,6 +115,8 @@ function ensure_schema(PDO $pdo): void
         $pdo->exec($sql);
     }
 
+    ensure_auth_schema($pdo);
+
     $ensured = true;
 }
 

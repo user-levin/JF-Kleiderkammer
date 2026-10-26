@@ -1,5 +1,7 @@
-import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { Suspense, lazy, useState } from 'react';
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { api, AUTH_EXPIRED_EVENT, AuthUser } from '@api/client';
 import './styles/global.css';
 
 const DashboardPage = lazy(() => import('@pages/Dashboard'));
@@ -13,7 +15,15 @@ const LoginPage = lazy(() => import('@pages/Login'));
 const InventarPage = lazy(() => import('@pages/Inventar'));
 const BenutzerPage = lazy(() => import('@pages/Benutzer'));
 
-function AppShell({ children }: { children: React.ReactNode }) {
+function AppShell({
+  children,
+  user,
+  onLogout
+}: {
+  children: React.ReactNode;
+  user: AuthUser;
+  onLogout: () => void;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -39,6 +49,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
           <Link to="/kinder" onClick={() => setMenuOpen(false)}>Kinder</Link>
           <Link to="/benutzer" onClick={() => setMenuOpen(false)}>Benutzer</Link>
+          <button type="button" className="ghost-button nav-logout" onClick={onLogout} title={user.email}>
+            Abmelden
+          </button>
         </nav>
       </header>
       <main>
@@ -73,6 +86,7 @@ function PublicShell({ children }: { children: React.ReactNode }) {
           <Link to="/public" onClick={() => setMenuOpen(false)}>Dashboard</Link>
           <Link to="/public/search" onClick={() => setMenuOpen(false)}>Suche</Link>
           <Link to="/public/scan" onClick={() => setMenuOpen(false)}>Scannen</Link>
+          <Link to="/login" onClick={() => setMenuOpen(false)}>Anmelden</Link>
         </nav>
       </header>
       <main>
@@ -85,34 +99,51 @@ function PublicShell({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const authDisabled = (import.meta.env.VITE_AUTH_DISABLED ?? 'true') === 'true';
-  const [token, setToken] = useState<string | null>(authDisabled ? 'dev-token' : localStorage.getItem('token'));
+  // undefined = wird noch geprüft, null = nicht angemeldet
+  const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
   const navigate = useNavigate();
-  const isAuthenticated = authDisabled || Boolean(token);
+  const location = useLocation();
+  const queryClient = useQueryClient();
 
-  const handleLogin = (t: string) => {
-    if (authDisabled) {
-      navigate('/');
-      return;
-    }
-    localStorage.setItem('token', t);
-    setToken(t);
-    navigate('/');
+  useEffect(() => {
+    api
+      .get<{ data: AuthUser | null }>('/api/auth/me')
+      .then((res) => setUser(res.data.data))
+      .catch(() => setUser(null));
+  }, []);
+
+  // Session abgelaufen oder serverseitig beendet: zurück zum Login
+  useEffect(() => {
+    const handleExpired = () => setUser(null);
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleExpired);
+  }, []);
+
+  const handleLogin = (loggedIn: AuthUser) => {
+    setUser(loggedIn);
+    const from = (location.state as { from?: string } | null)?.from;
+    navigate(from && from !== '/login' ? from : '/', { replace: true });
   };
 
-  const handleLogout = () => {
-    if (authDisabled) {
-      navigate('/');
-      return;
+  const handleLogout = useCallback(async () => {
+    try {
+      await api.post('/api/auth/logout');
+    } finally {
+      setUser(null);
+      queryClient.clear();
+      navigate('/login', { replace: true });
     }
-    localStorage.removeItem('token');
-    setToken(null);
-    navigate('/login');
-  };
+  }, [navigate, queryClient]);
 
-  const renderProtectedRoute = (component: React.ReactNode) => (
-    isAuthenticated ? <AppShell>{component}</AppShell> : <Navigate to="/login" replace />
-  );
+  const renderProtectedRoute = (component: React.ReactNode) => {
+    if (user === undefined) {
+      return <div className="auth"><p className="muted">Anmeldung wird geprüft ...</p></div>;
+    }
+    if (user === null) {
+      return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    }
+    return <AppShell user={user} onLogout={handleLogout}>{component}</AppShell>;
+  };
 
   const renderPublicRoute = (component: React.ReactNode) => (
     <PublicShell>{component}</PublicShell>
@@ -122,7 +153,7 @@ export default function App() {
     <Routes>
       <Route
         path="/login"
-        element={authDisabled ? (
+        element={user ? (
           <Navigate to="/" replace />
         ) : (
           <Suspense fallback={<div className="card"><p className="muted">Login wird geladen ...</p></div>}>
@@ -144,7 +175,7 @@ export default function App() {
       />
       <Route
         path="/"
-        element={renderProtectedRoute(<DashboardPage onLogout={authDisabled ? undefined : handleLogout} />)}
+        element={renderProtectedRoute(<DashboardPage />)}
       />
       <Route
         path="/inventar"

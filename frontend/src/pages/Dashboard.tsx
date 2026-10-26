@@ -41,11 +41,7 @@ type HelmetAlert = {
 const WARNING_DAYS = 30;
 const dateFormatter = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium' });
 
-type DashboardProps = {
-  onLogout?: () => void;
-};
-
-export default function Dashboard({ onLogout }: DashboardProps) {
+export default function Dashboard() {
   const queryClient = useQueryClient();
   const { data, isLoading, isFetching, error, refetch } = useQuery<Article[]>({
     queryKey: ['articles'],
@@ -205,7 +201,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             <button className="ghost-button" onClick={() => refetch()} disabled={isFetching}>
               {isFetching ? 'Aktualisiere...' : 'Aktualisieren'}
             </button>
-            {onLogout && <button onClick={onLogout}>Logout</button>}
           </div>
         </div>
         {error && <p className="error">{error instanceof Error ? error.message : 'Fehler beim Laden.'}</p>}

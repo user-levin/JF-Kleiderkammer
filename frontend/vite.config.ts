@@ -30,12 +30,12 @@ export default defineConfig({
     https: httpsConfig,
     proxy: {
       '/api': {
-        target: 'http://localhost',
+        target: 'https://localhost',
         changeOrigin: true,
         secure: false
       },
       '/health': {
-        target: 'http://localhost',
+        target: 'https://localhost',
         changeOrigin: true,
         secure: false
       }
