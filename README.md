@@ -192,6 +192,37 @@ z. B. vom Mac aus:
 rsync -avz jf@192.168.112.136:kleiderkammer-backups/ ~/Documents/Kleiderkammer-Backups/
 ```
 
+**Automatisch auf einen FTP-/SFTP-Server hochladen** (z. B. Webspace oder NAS):
+
+1. Zugangsdaten in `~/.netrc` auf dem Pi ablegen – so stehen sie weder im Skript noch in der Crontab:
+   ```bash
+   echo "machine ftp.example.de login BENUTZER password PASSWORT" >> ~/.netrc
+   chmod 600 ~/.netrc
+   ```
+2. Ein Passwort für die Verschlüsselung erzeugen. **Gut aufheben** (z. B. in KeePass) – ohne diese
+   Datei lassen sich die hochgeladenen Backups nicht mehr öffnen:
+   ```bash
+   openssl rand -base64 32 > ~/.kleiderkammer-backup.key
+   chmod 600 ~/.kleiderkammer-backup.key
+   ```
+3. Einstellungen in `~/.kleiderkammer-backup.env` (wird vom Skript automatisch gelesen):
+   ```bash
+   UPLOAD_URL=ftps://ftp.example.de/kleiderkammer-backups/
+   ENCRYPT_PASSFILE=/home/jf/.kleiderkammer-backup.key
+   ```
+   Möglich sind `ftps://…`, `ftp://…` (nur mit TLS, unverschlüsseltes FTP wird abgelehnt) und
+   `sftp://…` (prüfen mit `curl -V | grep sftp`). Danach das Skript einmal von Hand starten.
+
+Hochgeladen wird `kleiderkammer_….sql.gz.enc`; das lokale Backup bleibt unverschlüsselt auf dem Pi.
+Alte Backups auf dem Server löscht das Skript nicht – bei Bedarf dort von Zeit zu Zeit aufräumen.
+Schlägt der Upload fehl, steht das in `backup.log`, das lokale Backup ist trotzdem da.
+
+Hochgeladenes Backup entschlüsseln:
+
+```bash
+openssl enc -d -aes-256-cbc -pbkdf2 -in kleiderkammer_JJJJ-MM-TT_HHMM.sql.gz.enc -out kleiderkammer.sql.gz -pass file:$HOME/.kleiderkammer-backup.key
+```
+
 **Wiederherstellen** (ersetzt alle aktuellen Daten!):
 
 ```bash
