@@ -11,6 +11,7 @@ export type Permission =
   | 'articles.assign'
   | 'articles.edit'
   | 'inventory.export'
+  | 'inventory.import'
   | 'users.manage'
   | 'data.backup'
   | 'audit.view'

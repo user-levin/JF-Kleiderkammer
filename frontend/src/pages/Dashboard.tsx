@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@api/client';
 import { CATEGORY_PRESETS } from '../constants/articlePresets';
 import { useAuth } from '../auth';
+import { exportInventoryCsv } from '../utils/inventoryExport';
 
 type Article = {
   id: string;
@@ -138,7 +139,7 @@ export default function Dashboard() {
   }, [articles]);
 
   const handleExportCsv = () => {
-    downloadCsv(`bestand_${new Date().toISOString().slice(0, 10)}.csv`, buildInventoryCsv(articles));
+    exportInventoryCsv(articles);
   };
 
   const shortageItems = useMemo(() => {
@@ -435,54 +436,6 @@ function InventoryIdList({
 
 function compareArticleIds(a: Article, b: Article): number {
   return a.id.localeCompare(b.id, 'de-DE', { numeric: true });
-}
-
-const CSV_COLUMNS: Array<{ header: string; value: (article: Article) => string | null }> = [
-  { header: 'Inventarnummer', value: (a) => a.id },
-  { header: 'Kategorie', value: (a) => a.category },
-  { header: 'Bezeichnung', value: (a) => a.label },
-  { header: 'Größe', value: (a) => a.size },
-  { header: 'Status', value: (a) => a.status },
-  { header: 'Ort', value: (a) => (a.location.type === 'kind' ? 'Kind' : 'Lager') },
-  { header: 'Kind / Lagerort', value: (a) => a.location.name },
-  { header: 'Seit', value: (a) => a.assignedAt?.slice(0, 10) ?? null },
-  { header: 'Ablaufdatum', value: (a) => a.expiryDate },
-  { header: 'Letzte Helmprüfung', value: (a) => a.helmetLastCheck },
-  { header: 'Nächste Helmprüfung', value: (a) => a.helmetNextCheck },
-  { header: 'Notiz', value: (a) => a.notes }
-];
-
-function buildInventoryCsv(articles: Article[]): string {
-  // Semikolon als Trennzeichen, damit Excel mit deutscher Ländereinstellung die Spalten erkennt
-  const escape = (value: string | null) => {
-    let text = value ?? '';
-    // Verhindert, dass Excel Notizen wie "=..." als Formel ausführt
-    if (/^[=+@\t]/.test(text)) {
-      text = `'${text}`;
-    }
-    return /[";\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  };
-  const sorted = [...articles].sort(
-    (a, b) => (a.category || '').localeCompare(b.category || '', 'de-DE') || compareArticleIds(a, b)
-  );
-  const lines = [
-    CSV_COLUMNS.map((column) => column.header).join(';'),
-    ...sorted.map((article) => CSV_COLUMNS.map((column) => escape(column.value(article))).join(';'))
-  ];
-  return lines.join('\r\n');
-}
-
-function downloadCsv(filename: string, content: string) {
-  // BOM, damit Excel Umlaute als UTF-8 liest
-  const blob = new Blob(['﻿' + content], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
 }
 
 function parseDate(value?: string | null): Date | null {

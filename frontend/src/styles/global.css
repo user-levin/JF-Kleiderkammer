@@ -851,6 +851,24 @@ button.todo-section-toggle {
   .todo-item { flex-wrap: wrap; }
   .todo-actions { width: 100%; justify-content: flex-end; }
 }
+.transfer-panel {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  background: rgba(254, 151, 6, 0.05);
+}
+.transfer-panel-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.transfer-panel-header h3 { margin: 0; }
+.transfer-grid { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-top: 0.75rem; }
+.transfer-grid h4 { margin: 0 0 0.5rem; }
+.transfer-scope { display: grid; gap: 0.25rem; }
+.transfer-scope .checkbox-label { align-items: flex-start; margin-bottom: 0.4rem; }
+.transfer-scope input { margin-top: 0.25rem; }
+.transfer-scope .is-disabled { opacity: 0.55; cursor: not-allowed; }
+.transfer-filter-text { font-size: 0.85rem; }
+.transfer-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.transfer-hint { font-size: 0.85rem; margin: 0 0 0.75rem; }
 .plain-fieldset { display: contents; border: 0; margin: 0; padding: 0; }
 .user-status { display: inline-flex; align-items: center; font-size: 0.85rem; }
 .user-status.active { color: #34d399; }

@@ -91,6 +91,12 @@ switch (true) {
         }
         json_response(['data' => $articles]);
 
+    case $method === 'POST' && $path === '/api/articles/import':
+        require_permission($pdo, 'inventory.import');
+        $result = import_articles_csv($pdo, read_json_body());
+        audit($pdo, 'article.import', sprintf('CSV-Import: %d Artikel angelegt, %d übersprungen, %d fehlerhaft', $result['created'], $result['skipped'], count($result['errors'])), null, $result);
+        json_response(['data' => $result]);
+
     case $method === 'DELETE' && $path === '/api/articles':
         require_permission($pdo, 'articles.edit');
         $result = purge_articles($pdo);
@@ -1111,6 +1117,168 @@ function csv_safe(?string $value): string
 
     // Verhindert, dass Excel Werte wie "=..." als Formel ausführt
     return preg_match('/^[=+@\t]/', $text) === 1 ? "'" . $text : $text;
+}
+
+/**
+ * Zerlegt eine CSV-Datei (Semikolon oder Komma, optional mit BOM) in Kopfzeile und Datenzeilen.
+ * Die Kopfzeile wird kleingeschrieben zurückgegeben.
+ */
+function parse_csv_upload(string $csv): array
+{
+    $csv = preg_replace('/^\xEF\xBB\xBF/', '', $csv) ?? $csv;
+
+    if (trim($csv) === '') {
+        json_error('Die CSV-Datei ist leer.', 422);
+    }
+
+    // Zeilenweise mit fgetcsv lesen, damit Zeilenumbrüche in Anführungszeichen (Notizen) erhalten bleiben
+    $handle = fopen('php://temp', 'r+');
+    fwrite($handle, $csv);
+    rewind($handle);
+    $firstLine = (string) fgets($handle);
+    $delimiter = substr_count($firstLine, ';') >= substr_count($firstLine, ',') ? ';' : ',';
+    rewind($handle);
+
+    $header = null;
+    $rows = [];
+    $lineNumber = 0;
+    while (($cells = fgetcsv($handle, 0, $delimiter, '"', '')) !== false) {
+        $lineNumber++;
+        if ($header === null) {
+            $header = array_map(static fn($cell) => mb_strtolower(trim((string) $cell)), $cells);
+            continue;
+        }
+        if ($cells === [null] || implode('', array_map('trim', array_map('strval', $cells))) === '') {
+            continue;
+        }
+        $rows[] = ['line' => $lineNumber, 'cells' => $cells];
+    }
+    fclose($handle);
+
+    return [$header ?? [], $rows];
+}
+
+/**
+ * Sucht die Spalte zu einem Feld; mehrere Schreibweisen der Kopfzeile sind erlaubt.
+ */
+function csv_column_index(array $header, array $names): ?int
+{
+    foreach ($names as $name) {
+        $index = array_search($name, $header, true);
+        if ($index !== false) {
+            return $index;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Legt Artikel aus einer CSV-Datei an (gleiches Format wie der Export).
+ * Pflicht: Inventarnummer, Kategorie; bei Helmen das Herstellungsdatum.
+ * Ort "Kind" + Name in "Kind / Lagerort" gibt den Artikel direkt an dieses Kind aus, sonst Lager.
+ * Bereits vorhandene Inventarnummern werden übersprungen, nichts wird überschrieben.
+ */
+function import_articles_csv(PDO $pdo, array $payload): array
+{
+    [$header, $rows] = parse_csv_upload((string) ($payload['csv'] ?? ''));
+
+    $columns = [
+        'id' => csv_column_index($header, ['inventarnummer', 'artikelnummer', 'id']),
+        'category' => csv_column_index($header, ['kategorie']),
+        'label' => csv_column_index($header, ['bezeichnung']),
+        'size' => csv_column_index($header, ['größe', 'groesse']),
+        'location' => csv_column_index($header, ['ort']),
+        'child' => csv_column_index($header, ['kind / lagerort', 'kind']),
+        'expiry' => csv_column_index($header, ['ablaufdatum']),
+        'manufactured' => csv_column_index($header, ['herstellungsdatum', 'herstellungsdatum (helm)']),
+        'notes' => csv_column_index($header, ['notiz', 'notizen']),
+    ];
+
+    if ($columns['id'] === null || $columns['category'] === null) {
+        json_error('Die erste Zeile muss mindestens die Spalten "Inventarnummer" und "Kategorie" enthalten.', 422);
+    }
+
+    $children = [];
+    foreach ($pdo->query('SELECT id, vorname, nachname FROM kind')->fetchAll() as $child) {
+        $children[mb_strtolower(trim($child['vorname'] . ' ' . $child['nachname']))] = (int) $child['id'];
+    }
+
+    $activeIds = array_flip($pdo->query('SELECT id FROM artikel WHERE aktiv = true')->fetchAll(PDO::FETCH_COLUMN));
+
+    $cell = static fn(array $cells, ?int $index): string => $index === null ? '' : trim((string) ($cells[$index] ?? ''));
+    // Nur 2030-02-28 oder 28.02.2030; liefert Y-m-d, '' für leer, null für ungültig
+    $parseDate = static function (string $value): ?string {
+        if ($value === '') {
+            return '';
+        }
+        foreach (['!Y-m-d', '!d.m.Y'] as $format) {
+            $date = DateTimeImmutable::createFromFormat($format, $value);
+            if ($date !== false && $date->format(substr($format, 1)) === $value) {
+                return $date->format('Y-m-d');
+            }
+        }
+        return null;
+    };
+
+    $created = 0;
+    $skipped = 0;
+    $errors = [];
+    $seen = [];
+
+    foreach ($rows as ['line' => $line, 'cells' => $cells]) {
+        $rawId = $cell($cells, $columns['id']);
+        $id = sanitize_article_id($rawId);
+        $category = $cell($cells, $columns['category']);
+
+        if ($id === '' || $category === '') {
+            $errors[] = ['line' => $line, 'message' => 'Inventarnummer oder Kategorie fehlt.'];
+            continue;
+        }
+
+        if (isset($activeIds[$id]) || isset($seen[$id])) {
+            $skipped++;
+            continue;
+        }
+
+        $expiry = $parseDate($cell($cells, $columns['expiry']));
+        $manufactured = $parseDate($cell($cells, $columns['manufactured']));
+        if ($expiry === null || $manufactured === null) {
+            $errors[] = ['line' => $line, 'message' => "Artikel {$id}: Datum ungültig (erlaubt: 28.02.2030 oder 2030-02-28)."];
+            continue;
+        }
+        if (mb_strtolower($category) === 'helm' && $manufactured === '') {
+            $errors[] = ['line' => $line, 'message' => "Artikel {$id}: Für Helme wird ein Herstellungsdatum benötigt."];
+            continue;
+        }
+
+        $payloadRow = [
+            'id' => $id,
+            'category' => $category,
+            'label' => $cell($cells, $columns['label']),
+            'size' => $cell($cells, $columns['size']),
+            'notes' => $cell($cells, $columns['notes']),
+            'expiryDate' => $expiry,
+            'helmetManufacturedAt' => $manufactured,
+            'locationType' => 'lager',
+        ];
+
+        if (mb_strtolower($cell($cells, $columns['location'])) === 'kind') {
+            $childName = mb_strtolower($cell($cells, $columns['child']));
+            if (!isset($children[$childName])) {
+                $errors[] = ['line' => $line, 'message' => "Artikel {$id}: Kind \"{$cell($cells, $columns['child'])}\" nicht gefunden."];
+                continue;
+            }
+            $payloadRow['locationType'] = 'kind';
+            $payloadRow['kindId'] = $children[$childName];
+        }
+
+        create_article($pdo, $payloadRow);
+        $seen[$id] = true;
+        $created++;
+    }
+
+    return ['created' => $created, 'skipped' => $skipped, 'errors' => $errors];
 }
 
 /**

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@api/client';
 import ArticleModal from '@components/ArticleModal';
+import InventoryTransferPanel from '@components/InventoryTransferPanel';
 import { useAuth } from '../auth';
 import { Article, Child } from 'types/domain';
 import { CATEGORY_PRESETS, CUSTOM_CATEGORY_KEY, matchPresetByCategory } from '@constants/articlePresets';
@@ -12,6 +13,12 @@ const DATE_TIME_FORMAT = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', 
 type StatusFilter = 'alle' | 'frei' | 'ausgegeben' | 'warnung';
 type LocationFilter = 'alle' | 'lager' | 'kind';
 
+const STATUS_LABELS: Record<Exclude<StatusFilter, 'alle'>, string> = {
+  frei: 'Im Lager',
+  ausgegeben: 'Bei Kindern',
+  warnung: 'Warnung aktiv'
+};
+
 type CategoryFilter = 'alle' | typeof CUSTOM_CATEGORY_KEY | (typeof CATEGORY_PRESETS)[number]['key'];
 
 export default function Inventar() {
@@ -21,6 +28,7 @@ export default function Inventar() {
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('alle');
   const [warningOnly, setWarningOnly] = useState(false);
   const [activeArticleId, setActiveArticleId] = useState<string | null>(null);
+  const [transferOpen, setTransferOpen] = useState(false);
 
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -123,6 +131,21 @@ export default function Inventar() {
     ? childrenQuery.data.find((child) => child.id === effectiveChildFilter) ?? null
     : null;
 
+  // Lesbare Beschreibung der aktiven Filter für den Export, z. B. "Kind: Max Muster · Kategorie: Jacke"
+  const filterDescription = [
+    normalizedSearch && `Suche: „${searchTerm.trim()}“`,
+    statusFilter !== 'alle' && `Status: ${STATUS_LABELS[statusFilter]}`,
+    locationFilter !== 'alle' && (locationFilter === 'lager' ? 'Nur Lager' : 'Nur bei Kindern'),
+    categoryFilter !== 'alle' &&
+      `Kategorie: ${categoryFilter === CUSTOM_CATEGORY_KEY
+        ? 'Weitere'
+        : CATEGORY_PRESETS.find((preset) => preset.key === categoryFilter)?.label ?? categoryFilter}`,
+    activeChildFilter && `Kind: ${activeChildFilter.firstName} ${activeChildFilter.lastName}`,
+    warningOnly && 'Nur Warnungen'
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   const handleArticleUpdated = (updatedArticle: Article) => {
     setActiveArticleId(updatedArticle.id);
     queryClient.invalidateQueries({ queryKey: ['articles'] });
@@ -165,6 +188,15 @@ export default function Inventar() {
             {can('articles.edit') && (
               <button type="button" onClick={() => navigate('/scan')}>
                 Artikel hinzufügen
+              </button>
+            )}
+            {can('inventory.export') && (
+              <button
+                className={`ghost-button ${transferOpen ? 'is-active' : ''}`}
+                type="button"
+                onClick={() => setTransferOpen((state) => !state)}
+              >
+                Import / Export
               </button>
             )}
             <button className="ghost-button" type="button" onClick={() => refetch()} disabled={isFetching}>
@@ -214,6 +246,14 @@ export default function Inventar() {
             <span>Nur Warnungen</span>
           </label>
         </div>
+        {transferOpen && can('inventory.export') && (
+          <InventoryTransferPanel
+            allArticles={articles}
+            filteredArticles={filteredArticles}
+            filterDescription={filterDescription}
+            onClose={() => setTransferOpen(false)}
+          />
+        )}
       </section>
 
       <section className="card inventory-list-card">

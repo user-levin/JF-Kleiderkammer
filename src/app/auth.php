@@ -18,7 +18,7 @@ const SESSION_TOUCH_SECONDS = 5 * 60;
 const ROLE_PERMISSIONS = [
     'admin' => [
         'children.view', 'children.create', 'children.edit', 'children.csv',
-        'articles.assign', 'articles.edit', 'inventory.export',
+        'articles.assign', 'articles.edit', 'inventory.export', 'inventory.import',
         'users.manage', 'data.backup', 'audit.view', 'todos.manage',
     ],
     'betreuer' => ['children.view', 'articles.assign', 'todos.manage'],
