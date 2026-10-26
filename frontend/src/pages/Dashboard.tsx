@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@api/client';
 import { CATEGORY_PRESETS } from '../constants/articlePresets';
 import { useAuth } from '../auth';
+import CategoryDetailModal from '@components/CategoryDetailModal';
 import { exportInventoryCsv } from '../utils/inventoryExport';
 
 type Article = {
@@ -46,6 +47,7 @@ const dateFormatter = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium' });
 export default function Dashboard() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
+  const [openCategory, setOpenCategory] = useState<string | null>(null);
   const { data, isLoading, isFetching, error, refetch } = useQuery<Article[]>({
     queryKey: ['articles'],
     queryFn: async () => {
@@ -238,7 +240,7 @@ export default function Dashboard() {
         <div className="card-header">
           <div>
             <h3>Bestandsverteilung</h3>
-            <p className="muted">Horizontaler Vergleich nach Kategorie (Lager vs. Kinder)</p>
+            <p className="muted">Kategorie antippen für Größen und Inventarnummern</p>
           </div>
           {can('inventory.export') && (
             <div className="card-actions">
@@ -260,7 +262,20 @@ export default function Dashboard() {
               const storageLength = total ? (cat.storage / total) * circumference : 0;
 
               return (
-                <article key={cat.category} className="inventory-pie-card">
+                <article
+                  key={cat.category}
+                  className={`inventory-pie-card ${total > 0 ? 'is-clickable' : ''}`}
+                  role={total > 0 ? 'button' : undefined}
+                  tabIndex={total > 0 ? 0 : undefined}
+                  aria-label={total > 0 ? `${cat.category}: Details anzeigen` : undefined}
+                  onClick={() => total > 0 && setOpenCategory(cat.category)}
+                  onKeyDown={(event) => {
+                    if (total > 0 && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      setOpenCategory(cat.category);
+                    }
+                  }}
+                >
                   <div className="inventory-pie-header">
                     <span>{cat.category}</span>
                     <span className="muted">{cat.total}</span>
@@ -300,19 +315,24 @@ export default function Dashboard() {
                     <span className="legend-item legend-children">Kind: {cat.children}</span>
                     <span className="legend-item legend-storage">Lager: {cat.storage}</span>
                   </div>
-                  {total > 0 && (
-                    <details className="inventory-id-details">
-                      <summary>Inventarnummern</summary>
-                      <InventoryIdList title="Bei Kindern" articles={cat.childArticles} showChild />
-                      <InventoryIdList title="Im Lager" articles={cat.storageArticles} />
-                    </details>
-                  )}
+                  {total > 0 && <span className="inventory-pie-more">Details ›</span>}
                 </article>
               );
             })}
           </div>
         )}
       </section>
+
+      {openCategory && (
+        <CategoryDetailModal
+          category={openCategory}
+          articles={(() => {
+            const stat = categoryStats.find((entry) => entry.category === openCategory);
+            return stat ? [...stat.childArticles, ...stat.storageArticles] : [];
+          })()}
+          onClose={() => setOpenCategory(null)}
+        />
+      )}
 
       <section className="card">
         <div className="card-header">
@@ -394,42 +414,6 @@ export default function Dashboard() {
           </p>
         )}
       </section>
-    </div>
-  );
-}
-
-function InventoryIdList({
-  title,
-  articles,
-  showChild = false
-}: {
-  title: string;
-  articles: Article[];
-  showChild?: boolean;
-}) {
-  if (articles.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="inventory-id-group">
-      <p className="inventory-id-title">
-        {title} ({articles.length})
-      </p>
-      <ul className="inventory-id-list">
-        {articles.map((article) => (
-          <li key={article.id}>
-            <span className="helmet-article-id">#{article.id}</span>
-            <span
-              className="muted"
-              title={showChild && article.location.name ? article.location.name : undefined}
-            >
-              {article.size ?? 'One Size'}
-              {showChild && article.location.name ? ` · ${article.location.name}` : ''}
-            </span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
