@@ -55,7 +55,7 @@ log "Starte Backup nach $target"
 docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" --no-owner | gzip -9 > "$partial"
 
 # Ein vollständiger pg_dump endet mit dieser Zeile; fehlt sie, ist der Dump abgebrochen
-if ! gzip -dc "$partial" | tail -n 5 | grep -q "PostgreSQL database dump complete"; then
+if ! gzip -dc "$partial" | tail -n 20 | grep -q "PostgreSQL database dump complete"; then
   log "FEHLER: Dump ist unvollständig, Backup verworfen."
   exit 1
 fi

@@ -1418,7 +1418,7 @@ function create_sql_dump(): string
     fclose($pipes[2]);
     $exitCode = proc_close($process);
 
-    if ($exitCode !== 0 || !str_contains(substr((string) $sql, -200), 'PostgreSQL database dump complete')) {
+    if ($exitCode !== 0 || !str_contains(substr((string) $sql, -2000), 'PostgreSQL database dump complete')) {
         error_log('pg_dump fehlgeschlagen: ' . $errors);
         json_error('Backup konnte nicht erstellt werden.', 500);
     }
